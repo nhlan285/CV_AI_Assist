@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block title %}Cập nhật công ty{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <div class="section-panel p-4">
+      <h1 class="h4 mb-3">Cập nhật công ty</h1>
+      <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {% include "recruitment/_form_fields.html" %}
+        <button class="btn btn-primary" type="submit">Lưu công ty</button>
+        <a class="btn btn-outline-secondary" href="{% url 'company_detail' company.pk %}">Xem trang công ty</a>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

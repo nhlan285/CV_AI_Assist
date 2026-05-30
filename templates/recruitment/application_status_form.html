@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block title %}Cập nhật trạng thái{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <div class="section-panel p-4">
+      <h1 class="h4 mb-1">Cập nhật trạng thái</h1>
+      <p class="text-muted-ats">{{ application.candidate.full_name }} | {{ application.job.title }}</p>
+      <form method="post">
+        {% csrf_token %}
+        {% include "recruitment/_form_fields.html" %}
+        <button class="btn btn-primary" type="submit">Lưu trạng thái</button>
+        <a class="btn btn-outline-secondary" href="{% url 'recruiter_job_applications' application.job.pk %}">Quay lại</a>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

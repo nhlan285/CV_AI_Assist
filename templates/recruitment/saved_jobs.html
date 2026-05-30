@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}Việc làm đã lưu{% endblock %}
+
+{% block content %}
+<h1 class="h3 mb-4">Việc làm đã lưu</h1>
+<div class="row g-3">
+  {% for saved in saved_jobs %}
+    <div class="col-lg-6">
+      <div class="job-card p-3 h-100">
+        <h2 class="h5"><a class="text-decoration-none" href="{% url 'job_detail' saved.job.pk %}">{{ saved.job.title }}</a></h2>
+        <div class="text-muted-ats">{{ saved.job.company.name }} | {{ saved.job.location }}</div>
+        <form class="mt-3" method="post" action="{% url 'toggle_saved_job' saved.job.pk %}">
+          {% csrf_token %}
+          <button class="btn btn-outline-secondary btn-sm" type="submit">Bỏ lưu</button>
+        </form>
+      </div>
+    </div>
+  {% empty %}
+    <div class="col-12"><div class="section-panel p-4 text-muted-ats">Bạn chưa lưu việc làm nào.</div></div>
+  {% endfor %}
+</div>
+{% endblock %}

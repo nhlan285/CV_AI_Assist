@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}Quản lý CV{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-5">
+    <div class="section-panel p-4">
+      <h1 class="h4 mb-3">Upload CV PDF</h1>
+      <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {% include "recruitment/_form_fields.html" %}
+        <button class="btn btn-primary" type="submit">Upload CV</button>
+      </form>
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="section-panel p-4">
+      <h2 class="h5 mb-3">CV đã upload</h2>
+      <div class="table-responsive">
+        <table class="table">
+          <thead><tr><th>Tên CV</th><th>Trạng thái</th><th>File</th><th>Ngày upload</th></tr></thead>
+          <tbody>
+            {% for cv in cv_documents %}
+              <tr>
+                <td>{{ cv }}</td>
+                <td><span class="badge badge-soft">{{ cv.get_parse_status_display }}</span></td>
+                <td><a href="{{ cv.file.url }}" target="_blank">Mở PDF</a></td>
+                <td>{{ cv.uploaded_at|date:"d/m/Y H:i" }}</td>
+              </tr>
+              {% if cv.parse_error %}
+                <tr><td colspan="4" class="text-danger small">{{ cv.parse_error }}</td></tr>
+              {% endif %}
+            {% empty %}
+              <tr><td colspan="4" class="text-muted-ats">Chưa có CV nào.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

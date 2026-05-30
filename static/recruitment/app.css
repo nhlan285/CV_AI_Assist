@@ -1,0 +1,93 @@
+:root {
+  --ats-ink: #172033;
+  --ats-muted: #5f6b7a;
+  --ats-accent: #0f766e;
+  --ats-warm: #b45309;
+  --ats-soft: #f6f7f9;
+  --ats-line: #dde3ea;
+}
+
+body {
+  background: var(--ats-soft);
+  color: var(--ats-ink);
+}
+
+.navbar {
+  border-bottom: 1px solid var(--ats-line);
+}
+
+.page-shell {
+  max-width: 1180px;
+}
+
+.section-panel {
+  background: #fff;
+  border: 1px solid var(--ats-line);
+  border-radius: 8px;
+}
+
+.job-card,
+.metric-card {
+  background: #fff;
+  border: 1px solid var(--ats-line);
+  border-radius: 8px;
+}
+
+.job-card:hover {
+  border-color: #9cc8c2;
+}
+
+.text-muted-ats {
+  color: var(--ats-muted);
+}
+
+.badge-soft {
+  background: #eaf5f3;
+  color: var(--ats-accent);
+  border: 1px solid #b7ddd7;
+}
+
+.badge-warm {
+  background: #fff3e6;
+  color: var(--ats-warm);
+  border: 1px solid #f2d0a8;
+}
+
+.btn-primary {
+  background: var(--ats-accent);
+  border-color: var(--ats-accent);
+}
+
+.btn-primary:hover,
+.btn-primary:focus {
+  background: #0b5f59;
+  border-color: #0b5f59;
+}
+
+.score-ring {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: conic-gradient(var(--ats-accent) calc(var(--score) * 1%), #e6ebef 0);
+}
+
+.score-ring span {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  font-weight: 700;
+}
+
+.table td,
+.table th {
+  vertical-align: middle;
+}
+
+textarea.form-control {
+  min-height: 110px;
+}

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Ứng viên {{ job.title }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="h3 mb-1">Ứng viên</h1>
+    <div class="text-muted-ats">{{ job.title }}</div>
+  </div>
+  <a class="btn btn-outline-secondary" href="{% url 'recruiter_jobs' %}">Quay lại job</a>
+</div>
+
+<div class="section-panel p-3 mb-4">
+  <form class="row g-2" method="get">
+    <div class="col-md-10">
+      <input class="form-control" name="q" value="{{ q }}" placeholder="Tìm theo tên, email, kỹ năng hoặc nội dung CV">
+    </div>
+    <div class="col-md-2 d-grid">
+      <button class="btn btn-primary" type="submit">Tìm</button>
+    </div>
+  </form>
+</div>
+
+<div class="section-panel p-4">
+  <div class="table-responsive">
+    <table class="table">
+      <thead><tr><th>Ứng viên</th><th>ATS</th><th>Kỹ năng khớp</th><th>Thiếu</th><th>Trạng thái</th><th></th></tr></thead>
+      <tbody>
+        {% for application in applications %}
+          <tr>
+            <td>
+              <strong>{{ application.candidate.full_name }}</strong>
+              <div class="small text-muted-ats">{{ application.candidate.user.email }}</div>
+              <a class="small" href="{{ application.cv.file.url }}" target="_blank">Mở CV</a>
+            </td>
+            <td>
+              <div class="score-ring" style="--score: {{ application.ats_score|floatformat:0 }}"><span>{{ application.ats_score|floatformat:0 }}</span></div>
+            </td>
+            <td>{{ application.matched_skills|default:"-" }}</td>
+            <td>{{ application.missing_skills|default:"-" }}</td>
+            <td><span class="badge badge-soft">{{ application.get_status_display }}</span></td>
+            <td><a class="btn btn-outline-primary btn-sm" href="{% url 'application_status_update' application.pk %}">Cập nhật</a></td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="text-muted-ats">Chưa có ứng viên.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

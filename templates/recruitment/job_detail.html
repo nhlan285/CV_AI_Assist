@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}{{ job.title }}{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-8">
+    <div class="section-panel p-4 mb-4">
+      <div class="d-flex justify-content-between gap-3 align-items-start">
+        <div>
+          <h1 class="h3 mb-2">{{ job.title }}</h1>
+          <a class="text-decoration-none" href="{% url 'company_detail' job.company.pk %}">{{ job.company.name }}</a>
+        </div>
+        <span class="badge badge-soft">{{ job.get_work_mode_display }}</span>
+      </div>
+      <div class="mt-3 text-muted-ats">
+        {{ job.location }} | {{ job.get_job_type_display }} | {{ job.salary_display }}
+      </div>
+      <div class="mt-3">
+        <span class="badge badge-warm">{{ job.required_skills }}</span>
+      </div>
+    </div>
+
+    <div class="section-panel p-4 mb-4">
+      <h2 class="h5">Mô tả công việc</h2>
+      <p class="mb-0">{{ job.description|linebreaksbr }}</p>
+    </div>
+
+    <div class="section-panel p-4 mb-4">
+      <h2 class="h5">Yêu cầu ứng viên</h2>
+      <p class="mb-0">{{ job.requirements|linebreaksbr }}</p>
+    </div>
+
+    <div class="section-panel p-4">
+      <h2 class="h5">Quyền lợi</h2>
+      <p class="mb-0">{{ job.benefits|default:"Chưa cập nhật"|linebreaksbr }}</p>
+    </div>
+  </div>
+
+  <aside class="col-lg-4">
+    <div class="section-panel p-4">
+      <h2 class="h5">Ứng tuyển</h2>
+      {% if application %}
+        <p class="text-muted-ats">Bạn đã ứng tuyển công việc này.</p>
+        <div class="mb-3">
+          <span class="badge badge-soft">{{ application.get_status_display }}</span>
+          <span class="badge badge-warm">ATS {{ application.ats_score|floatformat:1 }}/100</span>
+        </div>
+        <a class="btn btn-outline-primary w-100" href="{% url 'application_history' %}">Xem lịch sử ứng tuyển</a>
+      {% elif user.is_authenticated and user.candidate_profile %}
+        <a class="btn btn-primary w-100 mb-2" href="{% url 'apply_job' job.pk %}">Ứng tuyển ngay</a>
+        <form method="post" action="{% url 'toggle_saved_job' job.pk %}">
+          {% csrf_token %}
+          <button class="btn btn-outline-secondary w-100" type="submit">{% if saved %}Bỏ lưu{% else %}Lưu việc làm{% endif %}</button>
+        </form>
+      {% elif user.is_authenticated and user.recruiter_profile %}
+        <p class="text-muted-ats mb-0">Tài khoản recruiter không thể ứng tuyển.</p>
+      {% else %}
+        <a class="btn btn-primary w-100 mb-2" href="{% url 'login' %}">Đăng nhập để ứng tuyển</a>
+        <a class="btn btn-outline-primary w-100" href="{% url 'register_candidate' %}">Tạo tài khoản ứng viên</a>
+      {% endif %}
+      <hr>
+      <div class="small text-muted-ats">
+        <div>Hạn ứng tuyển: {{ job.deadline|default:"Chưa cập nhật" }}</div>
+        <div>Lượt xem: {{ job.view_count }}</div>
+      </div>
+    </div>
+  </aside>
+</div>
+{% endblock %}

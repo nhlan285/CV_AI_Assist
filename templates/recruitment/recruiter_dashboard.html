@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard nhà tuyển dụng{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="h3 mb-1">Dashboard nhà tuyển dụng</h1>
+    <div class="text-muted-ats">{{ company.name }}</div>
+  </div>
+  <a class="btn btn-primary" href="{% url 'job_create' %}">Đăng việc mới</a>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4"><div class="metric-card p-3"><div class="text-muted-ats">Tổng bài tuyển dụng</div><div class="h3 mb-0">{{ job_count }}</div></div></div>
+  <div class="col-md-4"><div class="metric-card p-3"><div class="text-muted-ats">Bài đang tuyển</div><div class="h3 mb-0">{{ active_job_count }}</div></div></div>
+  <div class="col-md-4"><div class="metric-card p-3"><div class="text-muted-ats">Tổng ứng viên</div><div class="h3 mb-0">{{ application_count }}</div></div></div>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="section-panel p-4">
+      <h2 class="h5 mb-3">Top ứng viên theo ATS</h2>
+      <div class="table-responsive">
+        <table class="table">
+          <thead><tr><th>Ứng viên</th><th>Công việc</th><th>ATS</th><th>Trạng thái</th></tr></thead>
+          <tbody>
+            {% for application in top_applications %}
+              <tr>
+                <td>{{ application.candidate.full_name }}</td>
+                <td><a href="{% url 'recruiter_job_applications' application.job.pk %}">{{ application.job.title }}</a></td>
+                <td>{{ application.ats_score|floatformat:1 }}</td>
+                <td><span class="badge badge-soft">{{ application.get_status_display }}</span></td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="4" class="text-muted-ats">Chưa có ứng viên.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="section-panel p-4">
+      <h2 class="h5 mb-3">Ứng tuyển theo trạng thái</h2>
+      {% for item in status_counts %}
+        <div class="d-flex justify-content-between border-bottom py-2">
+          <span>{{ item.label }}</span>
+          <strong>{{ item.total }}</strong>
+        </div>
+      {% empty %}
+        <p class="text-muted-ats mb-0">Chưa có dữ liệu thống kê.</p>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

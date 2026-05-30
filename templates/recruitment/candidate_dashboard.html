@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard ứng viên{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="h3 mb-1">Dashboard ứng viên</h1>
+    <div class="text-muted-ats">{{ candidate.full_name }}</div>
+  </div>
+  <a class="btn btn-primary" href="{% url 'cv_list' %}">Quản lý CV</a>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4"><div class="metric-card p-3"><div class="text-muted-ats">CV đã upload</div><div class="h3 mb-0">{{ cv_count }}</div></div></div>
+  <div class="col-md-4"><div class="metric-card p-3"><div class="text-muted-ats">Đơn ứng tuyển</div><div class="h3 mb-0">{{ application_count }}</div></div></div>
+  <div class="col-md-4"><div class="metric-card p-3"><div class="text-muted-ats">Job đã lưu</div><div class="h3 mb-0">{{ saved_jobs|length }}</div></div></div>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="section-panel p-4">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h5 mb-0">Ứng tuyển gần đây</h2>
+        <a class="small" href="{% url 'application_history' %}">Xem tất cả</a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm">
+          <thead><tr><th>Công việc</th><th>Trạng thái</th><th>ATS</th></tr></thead>
+          <tbody>
+            {% for application in applications %}
+              <tr>
+                <td><a href="{% url 'job_detail' application.job.pk %}">{{ application.job.title }}</a></td>
+                <td><span class="badge badge-soft">{{ application.get_status_display }}</span></td>
+                <td>{{ application.ats_score|floatformat:1 }}</td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="3" class="text-muted-ats">Bạn chưa ứng tuyển công việc nào.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="section-panel p-4">
+      <h2 class="h5 mb-3">Job gợi ý</h2>
+      {% for job in recommended_jobs %}
+        <div class="d-flex justify-content-between gap-3 border-bottom py-2">
+          <div>
+            <a class="fw-semibold text-decoration-none" href="{% url 'job_detail' job.pk %}">{{ job.title }}</a>
+            <div class="small text-muted-ats">{{ job.company.name }} | {{ job.location }}</div>
+          </div>
+          <span class="small text-muted-ats">{{ job.get_work_mode_display }}</span>
+        </div>
+      {% empty %}
+        <p class="text-muted-ats mb-0">Chưa có job đang mở.</p>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}
