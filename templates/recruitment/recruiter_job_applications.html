@@ -3,7 +3,7 @@
 {% block title %}Ứng viên {{ job.title }}{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-heading">
   <div>
     <h1 class="h3 mb-1">Ứng viên</h1>
     <div class="text-muted-ats">{{ job.title }}</div>
@@ -11,42 +11,109 @@
   <a class="btn btn-outline-secondary" href="{% url 'recruiter_jobs' %}">Quay lại job</a>
 </div>
 
-<div class="section-panel p-3 mb-4">
-  <form class="row g-2" method="get">
-    <div class="col-md-10">
-      <input class="form-control" name="q" value="{{ q }}" placeholder="Tìm theo tên, email, kỹ năng hoặc nội dung CV">
+<div class="filter-toolbar mb-4">
+  <form class="row g-3 w-100 align-items-end" method="get">
+    <div class="col-lg-5">
+      <label class="form-label" for="q">Từ khóa</label>
+      <input class="form-control" id="q" name="q" value="{{ q }}" placeholder="Tên, email, kỹ năng hoặc nội dung CV">
     </div>
-    <div class="col-md-2 d-grid">
-      <button class="btn btn-primary" type="submit">Tìm</button>
+    <div class="col-md-6 col-lg-2">
+      <label class="form-label" for="status">Trạng thái</label>
+      <select class="form-select" id="status" name="status">
+        <option value="">Tất cả</option>
+        {% for value,label in status_choices %}
+          <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-6 col-lg-2">
+      <label class="form-label" for="review_status">Review</label>
+      <select class="form-select" id="review_status" name="review_status">
+        <option value="">Tất cả</option>
+        {% for value,label in review_status_choices %}
+          <option value="{{ value }}" {% if review_status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-6 col-lg-2">
+      <label class="form-label" for="score_group">ATS score</label>
+      <select class="form-select" id="score_group" name="score_group">
+        <option value="">Tất cả</option>
+        {% for value,label in score_groups %}
+          <option value="{{ value }}" {% if score_group == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-lg-1 d-grid">
+      <button class="btn btn-primary" type="submit">Lọc</button>
     </div>
   </form>
 </div>
 
-<div class="section-panel p-4">
-  <div class="table-responsive">
-    <table class="table">
-      <thead><tr><th>Ứng viên</th><th>ATS</th><th>Kỹ năng khớp</th><th>Thiếu</th><th>Trạng thái</th><th></th></tr></thead>
-      <tbody>
-        {% for application in applications %}
-          <tr>
-            <td>
-              <strong>{{ application.candidate.full_name }}</strong>
-              <div class="small text-muted-ats">{{ application.candidate.user.email }}</div>
-              <a class="small" href="{{ application.cv.file.url }}" target="_blank">Mở CV</a>
-            </td>
-            <td>
-              <div class="score-ring" style="--score: {{ application.ats_score|floatformat:0 }}"><span>{{ application.ats_score|floatformat:0 }}</span></div>
-            </td>
-            <td>{{ application.matched_skills|default:"-" }}</td>
-            <td>{{ application.missing_skills|default:"-" }}</td>
-            <td><span class="badge badge-soft">{{ application.get_status_display }}</span></td>
-            <td><a class="btn btn-outline-primary btn-sm" href="{% url 'application_status_update' application.pk %}">Cập nhật</a></td>
-          </tr>
-        {% empty %}
-          <tr><td colspan="6" class="text-muted-ats">Chưa có ứng viên.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+<section class="section-panel">
+  <div class="panel-heading">
+    <h2 class="h5 mb-0">Danh sách ứng viên</h2>
+    <span class="panel-meta">{{ applications|length }} hồ sơ</span>
   </div>
-</div>
+  <div class="candidate-review-list">
+    {% for application in applications %}
+      <article class="candidate-review-row">
+        <div class="candidate-main">
+          <div class="candidate-avatar">{{ application.candidate.full_name|first|upper }}</div>
+          <div>
+            <h3 class="h6 mb-1">{{ application.candidate.full_name }}</h3>
+            <div class="small text-muted-ats">{{ application.candidate.user.email }}</div>
+            <div class="candidate-actions mt-2">
+              <a href="{{ application.cv.file.url }}" target="_blank">Mở CV PDF</a>
+              <a href="{% url 'application_status_update' application.pk %}">Cập nhật trạng thái</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="candidate-score">
+          <div class="score-ring score-ring-sm" style="--score: {{ application.ats_score|floatformat:0 }}">
+            <span>{{ application.ats_score|floatformat:0 }}</span>
+          </div>
+          <div class="candidate-badges">
+            <span class="badge badge-soft">{{ application.get_status_display }}</span>
+            <span class="badge badge-warm">{{ application.get_review_status_display }}</span>
+          </div>
+        </div>
+
+        <div class="candidate-skills">
+          <div>
+            <div class="skill-label">Kỹ năng khớp</div>
+            <p class="mb-0">{{ application.matched_skills|default:"-" }}</p>
+          </div>
+          <div>
+            <div class="skill-label">Kỹ năng thiếu</div>
+            <p class="mb-0">{{ application.missing_skills|default:"-" }}</p>
+          </div>
+        </div>
+
+        <div class="candidate-ai">
+          <div class="score-parts">
+            <span>Semantic {{ application.ats_semantic_score|floatformat:0 }}</span>
+            <span>Skill {{ application.ats_skill_score|floatformat:0 }}</span>
+            {% if application.manual_score %}<span>Manual {{ application.manual_score }}/5</span>{% endif %}
+          </div>
+          {% if application.ai_summary %}
+            <p class="ai-summary mb-2">{{ application.ai_summary }}</p>
+          {% endif %}
+          <div class="parsed-cv">
+            {% if application.cv.extracted_email %}<span>{{ application.cv.extracted_email }}</span>{% endif %}
+            {% if application.cv.extracted_phone %}<span>{{ application.cv.extracted_phone }}</span>{% endif %}
+            {% for link in application.cv.extracted_links|slice:":2" %}
+              <a href="{{ link }}" target="_blank" rel="noreferrer">{{ link|truncatechars:28 }}</a>
+            {% endfor %}
+          </div>
+        </div>
+      </article>
+    {% empty %}
+      <div class="empty-state">
+        <div class="empty-state-title">Chưa có ứng viên phù hợp bộ lọc</div>
+      </div>
+    {% endfor %}
+  </div>
+</section>
 {% endblock %}

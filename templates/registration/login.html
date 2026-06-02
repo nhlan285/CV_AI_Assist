@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="row justify-content-center">
-  <div class="col-lg-5">
+  <div class="col-lg-5 auth-card">
     <div class="section-panel p-4">
       <h1 class="h4 mb-3">Đăng nhập</h1>
       <form method="post">
@@ -12,7 +12,7 @@
         {% include "recruitment/_form_fields.html" %}
         <button class="btn btn-primary w-100" type="submit">Đăng nhập</button>
       </form>
-      <div class="d-flex justify-content-between mt-3 small">
+      <div class="d-flex justify-content-between gap-3 mt-3 small">
         <a href="{% url 'register_candidate' %}">Tạo tài khoản ứng viên</a>
         <a href="{% url 'register_recruiter' %}">Tạo tài khoản nhà tuyển dụng</a>
       </div>

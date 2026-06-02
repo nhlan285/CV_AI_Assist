@@ -1,10 +1,12 @@
+from datetime import date, timedelta
+
 from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView
-from django.db.models import Count, Q
+from django.db.models import Avg, Count, Max, Q
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse_lazy
+from django.utils import timezone
 
 from .forms import (
     ApplicationForm,
@@ -22,6 +24,14 @@ from .services.ats import calculate_application_ats, ensure_cv_text
 from .services.emailer import send_application_success_email, send_status_update_email
 
 
+SCORE_GROUPS = [
+    ("lt50", "Dưới 50"),
+    ("50_69", "50-69"),
+    ("70_84", "70-84"),
+    ("85_100", "85-100"),
+]
+
+
 class VietnameseLoginView(LoginView):
     template_name = "registration/login.html"
     redirect_authenticated_user = True
@@ -34,6 +44,68 @@ def is_candidate(user):
 
 def is_recruiter(user):
     return hasattr(user, "recruiter_profile") and hasattr(user, "company")
+
+
+def month_shift(year, month, offset):
+    total = year * 12 + (month - 1) + offset
+    return total // 12, total % 12 + 1
+
+
+def build_recruiter_timeline(applications, period):
+    today = timezone.localdate()
+    if period == "year":
+        labels = [str(today.year - offset) for offset in range(4, -1, -1)]
+        keys = labels[:]
+        start_date = date(today.year - 4, 1, 1)
+
+        def key_for(value):
+            return str(timezone.localtime(value).year)
+
+    elif period == "month":
+        months = [month_shift(today.year, today.month, offset) for offset in range(-11, 1)]
+        keys = [f"{year}-{month:02d}" for year, month in months]
+        labels = [f"{month:02d}/{year}" for year, month in months]
+        first_year, first_month = months[0]
+        start_date = date(first_year, first_month, 1)
+
+        def key_for(value):
+            local_value = timezone.localtime(value)
+            return f"{local_value.year}-{local_value.month:02d}"
+
+    else:
+        dates = [today - timedelta(days=offset) for offset in range(29, -1, -1)]
+        keys = [date.isoformat() for date in dates]
+        labels = [date.strftime("%d/%m") for date in dates]
+        start_date = dates[0]
+
+        def key_for(value):
+            return timezone.localtime(value).date().isoformat()
+
+    totals = {key: 0 for key in keys}
+    score_sums = {key: 0.0 for key in keys}
+    recent_applications = applications.filter(created_at__date__gte=start_date).values("created_at", "ats_score")
+    for application in recent_applications:
+        key = key_for(application["created_at"])
+        if key not in totals:
+            continue
+        totals[key] += 1
+        score_sums[key] += application["ats_score"] or 0
+
+    counts = [totals[key] for key in keys]
+    average_scores = [
+        round(score_sums[key] / totals[key], 1) if totals[key] else 0
+        for key in keys
+    ]
+    return labels, counts, average_scores
+
+
+def score_bucket_counts(applications):
+    return [
+        applications.filter(ats_score__lt=50).count(),
+        applications.filter(ats_score__gte=50, ats_score__lt=70).count(),
+        applications.filter(ats_score__gte=70, ats_score__lt=85).count(),
+        applications.filter(ats_score__gte=85).count(),
+    ]
 
 
 def candidate_required(view_func):
@@ -264,8 +336,12 @@ def apply_job(request, pk):
             return render(request, "recruitment/apply_job.html", {"form": form, "job": job})
 
         application.ats_score = result["score"]
+        application.ats_semantic_score = result["semantic_score"]
+        application.ats_skill_score = result["skill_score"]
+        application.ats_breakdown = result["breakdown"]
         application.matched_skills = result["matched_skills"]
         application.missing_skills = result["missing_skills"]
+        application.ai_summary = result["summary"]
         application.ats_notes = result["notes"]
         application.save()
         send_application_success_email(application)
@@ -286,13 +362,55 @@ def recruiter_dashboard(request):
     company = request.user.company
     jobs = company.jobs.all()
     applications = Application.objects.filter(job__company=company).select_related("candidate", "job")
+    period = request.GET.get("period", "day")
+    if period not in {"day", "month", "year"}:
+        period = "day"
+
     status_counts_raw = applications.values("status").annotate(total=Count("id")).order_by("status")
     status_labels = dict(Application.Status.choices)
+    status_total_map = {item["status"]: item["total"] for item in status_counts_raw}
     status_counts = [
-        {"status": item["status"], "label": status_labels.get(item["status"], item["status"]), "total": item["total"]}
-        for item in status_counts_raw
+        {
+            "status": status,
+            "label": label,
+            "total": status_total_map.get(status, 0),
+        }
+        for status, label in Application.Status.choices
     ]
     top_applications = applications.order_by("-ats_score")[:8]
+    needs_manual_review_count = applications.filter(
+        ats_score__lt=70,
+        review_status__in=[Application.ReviewStatus.NOT_REVIEWED, Application.ReviewStatus.CONSIDER],
+    ).count()
+    timeline_labels, timeline_counts, timeline_scores = build_recruiter_timeline(applications, period)
+    top_jobs = (
+        jobs.annotate(
+            application_total=Count("applications"),
+            average_score=Avg("applications__ats_score"),
+            best_score=Max("applications__ats_score"),
+        )
+        .filter(application_total__gt=0)
+        .order_by("-application_total", "-best_score")[:6]
+    )
+    chart_data = {
+        "timeline": {
+            "labels": timeline_labels,
+            "counts": timeline_counts,
+            "average_scores": timeline_scores,
+        },
+        "statuses": {
+            "labels": [item["label"] for item in status_counts],
+            "totals": [item["total"] for item in status_counts],
+        },
+        "score_buckets": {
+            "labels": [label for _, label in SCORE_GROUPS],
+            "totals": score_bucket_counts(applications),
+        },
+        "top_jobs": {
+            "labels": [job.title for job in top_jobs],
+            "totals": [job.application_total for job in top_jobs],
+        },
+    }
     return render(
         request,
         "recruitment/recruiter_dashboard.html",
@@ -301,8 +419,13 @@ def recruiter_dashboard(request):
             "job_count": jobs.count(),
             "active_job_count": jobs.filter(is_active=True).count(),
             "application_count": applications.count(),
+            "average_ats_score": applications.aggregate(score=Avg("ats_score"))["score"] or 0,
+            "needs_manual_review_count": needs_manual_review_count,
+            "period": period,
             "status_counts": status_counts,
             "top_applications": top_applications,
+            "top_jobs": top_jobs,
+            "chart_data": chart_data,
         },
     )
 
@@ -362,6 +485,9 @@ def recruiter_job_applications(request, pk):
     job = get_object_or_404(JobPost, pk=pk, company=request.user.company)
     applications = job.applications.select_related("candidate", "candidate__user", "cv").order_by("-ats_score")
     q = request.GET.get("q", "").strip()
+    status = request.GET.get("status", "").strip()
+    review_status = request.GET.get("review_status", "").strip()
+    score_group = request.GET.get("score_group", "").strip()
     if q:
         applications = applications.filter(
             Q(candidate__full_name__icontains=q)
@@ -369,10 +495,33 @@ def recruiter_job_applications(request, pk):
             | Q(candidate__skills__icontains=q)
             | Q(cv__extracted_text__icontains=q)
         )
+    if status in dict(Application.Status.choices):
+        applications = applications.filter(status=status)
+    if review_status in dict(Application.ReviewStatus.choices):
+        applications = applications.filter(review_status=review_status)
+    if score_group == "lt50":
+        applications = applications.filter(ats_score__lt=50)
+    elif score_group == "50_69":
+        applications = applications.filter(ats_score__gte=50, ats_score__lt=70)
+    elif score_group == "70_84":
+        applications = applications.filter(ats_score__gte=70, ats_score__lt=85)
+    elif score_group == "85_100":
+        applications = applications.filter(ats_score__gte=85)
+
     return render(
         request,
         "recruitment/recruiter_job_applications.html",
-        {"job": job, "applications": applications, "q": q},
+        {
+            "job": job,
+            "applications": applications,
+            "q": q,
+            "status": status,
+            "review_status": review_status,
+            "score_group": score_group,
+            "status_choices": Application.Status.choices,
+            "review_status_choices": Application.ReviewStatus.choices,
+            "score_groups": SCORE_GROUPS,
+        },
     )
 
 
@@ -384,9 +533,20 @@ def application_status_update(request, pk):
         job__company=request.user.company,
     )
     old_status = application.status
+    old_review_status = application.review_status
+    old_recruiter_note = application.recruiter_note
+    old_manual_score = application.manual_score
     form = ApplicationStatusForm(request.POST or None, instance=application)
     if request.method == "POST" and form.is_valid():
-        updated = form.save()
+        updated = form.save(commit=False)
+        review_changed = (
+            updated.review_status != old_review_status
+            or updated.recruiter_note != old_recruiter_note
+            or updated.manual_score != old_manual_score
+        )
+        if review_changed:
+            updated.reviewed_at = timezone.now()
+        updated.save()
         if updated.status != old_status:
             send_status_update_email(updated)
         messages.success(request, "Đã cập nhật trạng thái ứng tuyển.")

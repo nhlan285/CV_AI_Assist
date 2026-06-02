@@ -4,10 +4,34 @@
 
 {% block content %}
 <div class="row justify-content-center">
-  <div class="col-lg-6">
+  <div class="col-lg-7">
     <div class="section-panel p-4">
-      <h1 class="h4 mb-1">Cập nhật trạng thái</h1>
-      <p class="text-muted-ats">{{ application.candidate.full_name }} | {{ application.job.title }}</p>
+      <div class="application-context mb-4">
+        <div>
+          <h1 class="h4 mb-1">Cập nhật trạng thái</h1>
+          <div class="text-muted-ats">{{ application.candidate.full_name }} | {{ application.job.title }}</div>
+        </div>
+        <div class="score-ring score-ring-sm" style="--score: {{ application.ats_score|floatformat:0 }}">
+          <span>{{ application.ats_score|floatformat:0 }}</span>
+        </div>
+      </div>
+      <div class="review-insight mb-4">
+        <div class="score-parts mb-2">
+          <span>Semantic {{ application.ats_semantic_score|floatformat:0 }}</span>
+          <span>Skill {{ application.ats_skill_score|floatformat:0 }}</span>
+          {% if application.manual_score %}<span>Manual {{ application.manual_score }}/5</span>{% endif %}
+        </div>
+        {% if application.ai_summary %}
+          <p class="ai-summary mb-2">{{ application.ai_summary }}</p>
+        {% endif %}
+        <div class="parsed-cv">
+          {% if application.cv.extracted_email %}<span>{{ application.cv.extracted_email }}</span>{% endif %}
+          {% if application.cv.extracted_phone %}<span>{{ application.cv.extracted_phone }}</span>{% endif %}
+          {% for link in application.cv.extracted_links|slice:":3" %}
+            <a href="{{ link }}" target="_blank" rel="noreferrer">{{ link|truncatechars:36 }}</a>
+          {% endfor %}
+        </div>
+      </div>
       <form method="post">
         {% csrf_token %}
         {% include "recruitment/_form_fields.html" %}

@@ -134,6 +134,12 @@ class CVDocument(models.Model):
     )
     original_filename = models.CharField(max_length=255, blank=True)
     extracted_text = models.TextField(blank=True)
+    extracted_email = models.EmailField(blank=True)
+    extracted_phone = models.CharField(max_length=40, blank=True)
+    extracted_links = models.JSONField(default=list, blank=True)
+    extracted_skills = models.TextField(blank=True)
+    education_summary = models.TextField(blank=True)
+    project_summary = models.TextField(blank=True)
     parse_status = models.CharField(
         max_length=20,
         choices=ParseStatus.choices,
@@ -159,15 +165,33 @@ class Application(models.Model):
         REJECTED = "rejected", "Từ chối"
         HIRED = "hired", "Đã tuyển"
 
+    class ReviewStatus(models.TextChoices):
+        NOT_REVIEWED = "not_reviewed", "Chưa xem"
+        CONSIDER = "consider", "Cần cân nhắc"
+        FIT = "fit", "Phù hợp"
+        REJECTED = "rejected", "Từ chối"
+
     candidate = models.ForeignKey(CandidateProfile, on_delete=models.CASCADE, related_name="applications")
     job = models.ForeignKey(JobPost, on_delete=models.CASCADE, related_name="applications")
     cv = models.ForeignKey(CVDocument, on_delete=models.PROTECT, related_name="applications")
     cover_letter = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.APPLIED)
     ats_score = models.FloatField(default=0)
+    ats_semantic_score = models.FloatField(default=0)
+    ats_skill_score = models.FloatField(default=0)
+    ats_breakdown = models.JSONField(default=dict, blank=True)
     matched_skills = models.TextField(blank=True)
     missing_skills = models.TextField(blank=True)
     ats_notes = models.TextField(blank=True)
+    ai_summary = models.TextField(blank=True)
+    review_status = models.CharField(
+        max_length=20,
+        choices=ReviewStatus.choices,
+        default=ReviewStatus.NOT_REVIEWED,
+    )
+    recruiter_note = models.TextField(blank=True)
+    manual_score = models.PositiveSmallIntegerField(null=True, blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

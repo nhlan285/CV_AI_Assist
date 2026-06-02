@@ -37,3 +37,8 @@ Can dung Gmail App Password, khong dung mat khau Gmail chinh.
 - File CV luu trong `media/`, database chi luu duong dan va metadata.
 - Semantic matching dung multilingual MiniLM model `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` qua HuggingFace `transformers`.
 - Neu model semantic chua san sang, service se fallback sang keyword similarity de khong lam hong flow ung tuyen.
+- Tinh lai CV parsing va ATS breakdown cho du lieu cu:
+
+```powershell
+python manage.py reprocess_ats
+```

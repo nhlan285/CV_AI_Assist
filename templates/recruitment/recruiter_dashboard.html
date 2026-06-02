@@ -3,7 +3,7 @@
 {% block title %}Dashboard nhà tuyển dụng{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-heading">
   <div>
     <h1 class="h3 mb-1">Dashboard nhà tuyển dụng</h1>
     <div class="text-muted-ats">{{ company.name }}</div>
@@ -11,47 +11,267 @@
   <a class="btn btn-primary" href="{% url 'job_create' %}">Đăng việc mới</a>
 </div>
 
-<div class="row g-3 mb-4">
-  <div class="col-md-4"><div class="metric-card p-3"><div class="text-muted-ats">Tổng bài tuyển dụng</div><div class="h3 mb-0">{{ job_count }}</div></div></div>
-  <div class="col-md-4"><div class="metric-card p-3"><div class="text-muted-ats">Bài đang tuyển</div><div class="h3 mb-0">{{ active_job_count }}</div></div></div>
-  <div class="col-md-4"><div class="metric-card p-3"><div class="text-muted-ats">Tổng ứng viên</div><div class="h3 mb-0">{{ application_count }}</div></div></div>
+<div class="filter-toolbar mb-4">
+  <div class="filter-toolbar-title">Thời gian thống kê</div>
+  <div class="segmented-control" role="group" aria-label="Bộ lọc thời gian">
+    <a class="{% if period == 'day' %}active{% endif %}" href="?period=day">Ngày</a>
+    <a class="{% if period == 'month' %}active{% endif %}" href="?period=month">Tháng</a>
+    <a class="{% if period == 'year' %}active{% endif %}" href="?period=year">Năm</a>
+  </div>
+</div>
+
+<div class="dashboard-metrics mb-4">
+  <div class="metric-card metric-card-accent p-3">
+    <div class="metric-label">Tổng bài tuyển dụng</div>
+    <div class="metric-value">{{ job_count }}</div>
+  </div>
+  <div class="metric-card p-3">
+    <div class="metric-label">Bài đang tuyển</div>
+    <div class="metric-value">{{ active_job_count }}</div>
+  </div>
+  <div class="metric-card p-3">
+    <div class="metric-label">CV đã qua AI ATS</div>
+    <div class="metric-value">{{ application_count }}</div>
+  </div>
+  <div class="metric-card p-3">
+    <div class="metric-label">ATS trung bình</div>
+    <div class="metric-value">{{ average_ats_score|floatformat:1 }}</div>
+  </div>
+  <div class="metric-card p-3">
+    <div class="metric-label">ATS thấp cần xem</div>
+    <div class="metric-value">{{ needs_manual_review_count }}</div>
+  </div>
+</div>
+
+<div class="dashboard-grid mb-4">
+  <section class="section-panel chart-panel chart-panel-wide">
+    <div class="panel-heading">
+      <h2 class="h5 mb-0">CV được AI lọc theo thời gian</h2>
+      <span class="panel-meta">ATS trung bình</span>
+    </div>
+    <div class="chart-frame">
+      <canvas id="timelineChart"></canvas>
+      {% if not application_count %}<div class="chart-empty">Chưa có dữ liệu</div>{% endif %}
+    </div>
+  </section>
+
+  <section class="section-panel chart-panel">
+    <div class="panel-heading">
+      <h2 class="h5 mb-0">Pipeline ứng tuyển</h2>
+    </div>
+    <div class="chart-frame chart-frame-square">
+      <canvas id="statusChart"></canvas>
+      {% if not application_count %}<div class="chart-empty">Chưa có dữ liệu</div>{% endif %}
+    </div>
+  </section>
+
+  <section class="section-panel chart-panel">
+    <div class="panel-heading">
+      <h2 class="h5 mb-0">Phân bổ ATS score</h2>
+    </div>
+    <div class="chart-frame chart-frame-square">
+      <canvas id="scoreBucketChart"></canvas>
+      {% if not application_count %}<div class="chart-empty">Chưa có dữ liệu</div>{% endif %}
+    </div>
+  </section>
+
+  <section class="section-panel chart-panel chart-panel-wide">
+    <div class="panel-heading">
+      <h2 class="h5 mb-0">Top job theo số ứng viên</h2>
+    </div>
+    <div class="chart-frame">
+      <canvas id="topJobsChart"></canvas>
+      {% if not application_count %}<div class="chart-empty">Chưa có dữ liệu</div>{% endif %}
+    </div>
+  </section>
 </div>
 
 <div class="row g-4">
-  <div class="col-lg-7">
-    <div class="section-panel p-4">
-      <h2 class="h5 mb-3">Top ứng viên theo ATS</h2>
+  <div class="col-xl-8">
+    <section class="section-panel">
+      <div class="panel-heading">
+        <h2 class="h5 mb-0">Top ứng viên theo ATS</h2>
+      </div>
       <div class="table-responsive">
-        <table class="table">
-          <thead><tr><th>Ứng viên</th><th>Công việc</th><th>ATS</th><th>Trạng thái</th></tr></thead>
+        <table class="table ats-table">
+          <thead>
+            <tr>
+              <th>Ứng viên</th>
+              <th>Công việc</th>
+              <th>ATS</th>
+              <th>Trạng thái</th>
+              <th></th>
+            </tr>
+          </thead>
           <tbody>
             {% for application in top_applications %}
               <tr>
-                <td>{{ application.candidate.full_name }}</td>
-                <td><a href="{% url 'recruiter_job_applications' application.job.pk %}">{{ application.job.title }}</a></td>
-                <td>{{ application.ats_score|floatformat:1 }}</td>
-                <td><span class="badge badge-soft">{{ application.get_status_display }}</span></td>
+                <td>
+                  <strong>{{ application.candidate.full_name }}</strong>
+                  <div class="small text-muted-ats">{{ application.candidate.user.email }}</div>
+                </td>
+                <td>{{ application.job.title }}</td>
+                <td>
+                  <div class="score-inline">
+                    <span>{{ application.ats_score|floatformat:1 }}</span>
+                    <div class="score-bar"><i style="width: {{ application.ats_score|floatformat:0 }}%"></i></div>
+                    <small>S {{ application.ats_semantic_score|floatformat:0 }} / K {{ application.ats_skill_score|floatformat:0 }}</small>
+                  </div>
+                </td>
+                <td>
+                  <span class="badge badge-soft">{{ application.get_status_display }}</span>
+                  <span class="badge badge-warm">{{ application.get_review_status_display }}</span>
+                </td>
+                <td class="text-end">
+                  <a class="btn btn-outline-primary btn-sm" href="{% url 'recruiter_job_applications' application.job.pk %}">Xem</a>
+                </td>
               </tr>
             {% empty %}
-              <tr><td colspan="4" class="text-muted-ats">Chưa có ứng viên.</td></tr>
+              <tr><td colspan="5" class="empty-cell">Chưa có ứng viên.</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
   </div>
-  <div class="col-lg-5">
-    <div class="section-panel p-4">
-      <h2 class="h5 mb-3">Ứng tuyển theo trạng thái</h2>
-      {% for item in status_counts %}
-        <div class="d-flex justify-content-between border-bottom py-2">
-          <span>{{ item.label }}</span>
-          <strong>{{ item.total }}</strong>
-        </div>
-      {% empty %}
-        <p class="text-muted-ats mb-0">Chưa có dữ liệu thống kê.</p>
-      {% endfor %}
-    </div>
+
+  <div class="col-xl-4">
+    <section class="section-panel p-4">
+      <h2 class="h5 mb-3">Trạng thái ứng tuyển</h2>
+      <div class="pipeline-list">
+        {% for item in status_counts %}
+          <div class="pipeline-row">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.total }}</strong>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
   </div>
 </div>
+
+{{ chart_data|json_script:"recruiter-chart-data" }}
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>
+  (() => {
+    const raw = document.getElementById("recruiter-chart-data");
+    if (!raw || !window.Chart) return;
+
+    const data = JSON.parse(raw.textContent);
+    const colors = {
+      primary: "#0f766e",
+      primarySoft: "rgba(15, 118, 110, 0.14)",
+      blue: "#2563eb",
+      blueSoft: "rgba(37, 99, 235, 0.14)",
+      warm: "#b45309",
+      slate: "#647184",
+      line: "#dce3ea",
+    };
+    const palette = ["#0f766e", "#2563eb", "#b45309", "#7c3aed", "#dc2626", "#0891b2", "#4b5563"];
+
+    Chart.defaults.font.family = 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    Chart.defaults.color = colors.slate;
+
+    const grid = { color: colors.line, drawBorder: false };
+
+    new Chart(document.getElementById("timelineChart"), {
+      type: "line",
+      data: {
+        labels: data.timeline.labels,
+        datasets: [
+          {
+            label: "CV đã lọc",
+            data: data.timeline.counts,
+            borderColor: colors.primary,
+            backgroundColor: colors.primarySoft,
+            fill: true,
+            tension: 0.32,
+            yAxisID: "y",
+          },
+          {
+            label: "ATS trung bình",
+            data: data.timeline.average_scores,
+            borderColor: colors.blue,
+            backgroundColor: colors.blueSoft,
+            tension: 0.32,
+            yAxisID: "y1",
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: { legend: { position: "bottom" } },
+        scales: {
+          y: { beginAtZero: true, ticks: { precision: 0 }, grid },
+          y1: { beginAtZero: true, max: 100, position: "right", grid: { drawOnChartArea: false } },
+          x: { grid: { display: false } },
+        },
+      },
+    });
+
+    new Chart(document.getElementById("statusChart"), {
+      type: "doughnut",
+      data: {
+        labels: data.statuses.labels,
+        datasets: [{ data: data.statuses.totals, backgroundColor: palette, borderWidth: 0 }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: "62%",
+        plugins: { legend: { position: "bottom" } },
+      },
+    });
+
+    new Chart(document.getElementById("scoreBucketChart"), {
+      type: "bar",
+      data: {
+        labels: data.score_buckets.labels,
+        datasets: [{
+          label: "Ứng viên",
+          data: data.score_buckets.totals,
+          backgroundColor: [colors.slate, colors.warm, colors.blue, colors.primary],
+          borderRadius: 8,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, ticks: { precision: 0 }, grid },
+          x: { grid: { display: false } },
+        },
+      },
+    });
+
+    new Chart(document.getElementById("topJobsChart"), {
+      type: "bar",
+      data: {
+        labels: data.top_jobs.labels,
+        datasets: [{
+          label: "Ứng viên",
+          data: data.top_jobs.totals,
+          backgroundColor: colors.primary,
+          borderRadius: 8,
+        }],
+      },
+      options: {
+        indexAxis: "y",
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { beginAtZero: true, ticks: { precision: 0 }, grid },
+          y: { grid: { display: false } },
+        },
+      },
+    });
+  })();
+</script>
 {% endblock %}

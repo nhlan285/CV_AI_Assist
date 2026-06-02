@@ -223,5 +223,19 @@ class ApplicationForm(BootstrapFormMixin, forms.ModelForm):
 class ApplicationStatusForm(BootstrapFormMixin, forms.ModelForm):
     class Meta:
         model = Application
-        fields = ("status",)
-        labels = {"status": "Trạng thái ứng tuyển"}
+        fields = ("status", "review_status", "manual_score", "recruiter_note")
+        labels = {
+            "status": "Trạng thái ứng tuyển",
+            "review_status": "Đánh giá thủ công",
+            "manual_score": "Điểm thủ công",
+            "recruiter_note": "Ghi chú recruiter",
+        }
+        widgets = {
+            "recruiter_note": forms.Textarea(attrs={"rows": 4}),
+        }
+
+    def clean_manual_score(self):
+        score = self.cleaned_data.get("manual_score")
+        if score is not None and not 1 <= score <= 5:
+            raise forms.ValidationError("Điểm thủ công phải từ 1 đến 5.")
+        return score

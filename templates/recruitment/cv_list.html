@@ -19,20 +19,28 @@
       <h2 class="h5 mb-3">CV đã upload</h2>
       <div class="table-responsive">
         <table class="table">
-          <thead><tr><th>Tên CV</th><th>Trạng thái</th><th>File</th><th>Ngày upload</th></tr></thead>
+          <thead><tr><th>Tên CV</th><th>Trạng thái</th><th>Thông tin parse</th><th>File</th><th>Ngày upload</th></tr></thead>
           <tbody>
             {% for cv in cv_documents %}
               <tr>
                 <td>{{ cv }}</td>
                 <td><span class="badge badge-soft">{{ cv.get_parse_status_display }}</span></td>
+                <td>
+                  <div class="small">
+                    {% if cv.extracted_email %}<div>{{ cv.extracted_email }}</div>{% endif %}
+                    {% if cv.extracted_phone %}<div>{{ cv.extracted_phone }}</div>{% endif %}
+                    {% if cv.extracted_skills %}<div class="text-muted-ats">{{ cv.extracted_skills|truncatechars:80 }}</div>{% endif %}
+                    {% if not cv.extracted_email and not cv.extracted_phone and not cv.extracted_skills %}<span class="text-muted-ats">-</span>{% endif %}
+                  </div>
+                </td>
                 <td><a href="{{ cv.file.url }}" target="_blank">Mở PDF</a></td>
                 <td>{{ cv.uploaded_at|date:"d/m/Y H:i" }}</td>
               </tr>
               {% if cv.parse_error %}
-                <tr><td colspan="4" class="text-danger small">{{ cv.parse_error }}</td></tr>
+                <tr><td colspan="5" class="text-danger small">{{ cv.parse_error }}</td></tr>
               {% endif %}
             {% empty %}
-              <tr><td colspan="4" class="text-muted-ats">Chưa có CV nào.</td></tr>
+              <tr><td colspan="5" class="text-muted-ats">Chưa có CV nào.</td></tr>
             {% endfor %}
           </tbody>
         </table>

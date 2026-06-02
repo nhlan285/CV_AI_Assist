@@ -39,16 +39,24 @@ class JobPostAdmin(admin.ModelAdmin):
 
 @admin.register(CVDocument)
 class CVDocumentAdmin(admin.ModelAdmin):
-    list_display = ("title", "candidate", "original_filename", "parse_status", "uploaded_at")
+    list_display = ("title", "candidate", "original_filename", "parse_status", "extracted_email", "uploaded_at")
     list_filter = ("parse_status", "uploaded_at")
-    search_fields = ("title", "candidate__full_name", "original_filename", "extracted_text")
+    search_fields = (
+        "title",
+        "candidate__full_name",
+        "original_filename",
+        "extracted_text",
+        "extracted_email",
+        "extracted_phone",
+        "extracted_skills",
+    )
 
 
 @admin.register(Application)
 class ApplicationAdmin(admin.ModelAdmin):
-    list_display = ("candidate", "job", "status", "ats_score", "created_at")
-    list_filter = ("status", "created_at")
-    search_fields = ("candidate__full_name", "job__title", "job__company__name")
+    list_display = ("candidate", "job", "status", "review_status", "ats_score", "manual_score", "created_at")
+    list_filter = ("status", "review_status", "created_at")
+    search_fields = ("candidate__full_name", "job__title", "job__company__name", "ai_summary", "recruiter_note")
 
 
 @admin.register(SavedJob)

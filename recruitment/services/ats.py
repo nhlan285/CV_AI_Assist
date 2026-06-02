@@ -1,6 +1,8 @@
 import math
 import re
+import unicodedata
 from collections import Counter
+from urllib.parse import urlparse
 
 from django.conf import settings
 
@@ -9,6 +11,74 @@ from recruitment.models import CVDocument
 
 _TOKENIZER = None
 _MODEL = None
+
+SKILL_ALIASES = {
+    "Python": ["python"],
+    "Django": ["django", "django framework"],
+    "Django REST Framework": ["django rest framework", "drf"],
+    "REST API": ["rest api", "restful api", "restful apis", "api rest"],
+    "JavaScript": ["javascript", "js", "ecmascript"],
+    "TypeScript": ["typescript", "ts"],
+    "React": ["react", "reactjs", "react js", "react.js"],
+    "Vue.js": ["vue", "vuejs", "vue js", "vue.js"],
+    "Node.js": ["node", "nodejs", "node js", "node.js"],
+    "Express.js": ["express", "expressjs", "express js", "express.js"],
+    "HTML": ["html", "html5"],
+    "CSS": ["css", "css3"],
+    "SQL": ["sql"],
+    "SQLite": ["sqlite", "sqlite3"],
+    "PostgreSQL": ["postgresql", "postgres", "postgre sql"],
+    "MySQL": ["mysql", "my sql"],
+    "MongoDB": ["mongodb", "mongo db"],
+    "Docker": ["docker"],
+    "Kubernetes": ["kubernetes", "k8s"],
+    "Git": ["git", "github", "gitlab"],
+    "AWS": ["aws", "amazon web services"],
+    "Azure": ["azure", "microsoft azure"],
+    "GCP": ["gcp", "google cloud", "google cloud platform"],
+    "Machine Learning": ["machine learning", "ml"],
+    "Deep Learning": ["deep learning", "dl"],
+    "NLP": ["nlp", "natural language processing", "xu ly ngon ngu tu nhien"],
+    "spaCy": ["spacy", "spa cy"],
+    "sentence-transformers": ["sentence transformers", "sentence-transformers", "sentence transformer"],
+    "Pandas": ["pandas"],
+    "NumPy": ["numpy", "num py"],
+    "Scikit-learn": ["scikit learn", "scikit-learn", "sklearn"],
+    "TensorFlow": ["tensorflow", "tensor flow"],
+    "PyTorch": ["pytorch", "py torch"],
+    "C": ["c"],
+    "C++": ["c++", "cpp", "cplusplus"],
+    "C/C++": ["c/c++", "c c++", "c and c++", "c/cpp", "c++", "cpp", "cplusplus"],
+    "C#": ["c#", "c sharp", "csharp"],
+    "Java": ["java"],
+    "PHP": ["php"],
+    "Laravel": ["laravel"],
+    "Ruby": ["ruby"],
+    "Go": ["go", "golang"],
+    "English": ["english", "tieng anh"],
+    "Communication": ["communication", "giao tiep"],
+    "Excel": ["excel", "microsoft excel"],
+    "Research": ["research", "nghien cuu"],
+}
+
+
+def build_skill_alias_lookup():
+    lookup = {}
+    for canonical, aliases in SKILL_ALIASES.items():
+        for alias in [canonical, *aliases]:
+            lookup[normalize_skill_phrase(alias)] = canonical
+            lookup[compact_skill_phrase(alias)] = canonical
+    return lookup
+
+
+SKILL_ALIAS_LOOKUP = None
+
+
+def get_skill_alias_lookup():
+    global SKILL_ALIAS_LOOKUP
+    if SKILL_ALIAS_LOOKUP is None:
+        SKILL_ALIAS_LOOKUP = build_skill_alias_lookup()
+    return SKILL_ALIAS_LOOKUP
 
 
 def extract_pdf_text(file_path):
@@ -26,6 +96,8 @@ def extract_pdf_text(file_path):
 
 def ensure_cv_text(cv_document):
     if cv_document.extracted_text and cv_document.parse_status == CVDocument.ParseStatus.PARSED:
+        if not cv_document.extracted_skills and not cv_document.extracted_email and not cv_document.extracted_phone:
+            populate_cv_parsed_fields(cv_document, cv_document.extracted_text)
         return cv_document.extracted_text
 
     try:
@@ -39,8 +111,42 @@ def ensure_cv_text(cv_document):
     cv_document.extracted_text = extracted
     cv_document.parse_status = CVDocument.ParseStatus.PARSED if extracted else CVDocument.ParseStatus.FAILED
     cv_document.parse_error = "" if extracted else "Khong tim thay text trong PDF. MVP chua ho tro OCR file scan."
-    cv_document.save(update_fields=["extracted_text", "parse_status", "parse_error"])
+    populate_cv_parsed_fields(cv_document, extracted, save=False)
+    cv_document.save(
+        update_fields=[
+            "extracted_text",
+            "extracted_email",
+            "extracted_phone",
+            "extracted_links",
+            "extracted_skills",
+            "education_summary",
+            "project_summary",
+            "parse_status",
+            "parse_error",
+        ]
+    )
     return extracted
+
+
+def populate_cv_parsed_fields(cv_document, cv_text, save=True):
+    parsed_profile = parse_cv_profile(cv_text)
+    cv_document.extracted_email = parsed_profile["email"]
+    cv_document.extracted_phone = parsed_profile["phone"]
+    cv_document.extracted_links = parsed_profile["links"]
+    cv_document.extracted_skills = ", ".join(parsed_profile["skills"])
+    cv_document.education_summary = parsed_profile["education_summary"]
+    cv_document.project_summary = parsed_profile["project_summary"]
+    if save:
+        cv_document.save(
+            update_fields=[
+                "extracted_email",
+                "extracted_phone",
+                "extracted_links",
+                "extracted_skills",
+                "education_summary",
+                "project_summary",
+            ]
+        )
 
 
 def calculate_application_ats(cv_text, job):
@@ -48,17 +154,43 @@ def calculate_application_ats(cv_text, job):
     semantic_score, note = semantic_similarity_score(cv_text, job_text)
     skills = split_skills(job.required_skills)
     matched, missing = match_skills(cv_text, skills)
+    skill_score = (len(matched) / len(skills)) * 100 if skills else 0
+    experience_score = detect_experience_signal(cv_text)
+    education_score = detect_education_signal(cv_text)
+    domain_score = detect_domain_signal(cv_text, job_text)
 
-    if skills:
-        skill_score = (len(matched) / len(skills)) * 100
-        final_score = (semantic_score * 0.85) + (skill_score * 0.15)
-    else:
-        final_score = semantic_score
+    final_score = (
+        semantic_score * 0.50
+        + skill_score * 0.30
+        + experience_score * 0.10
+        + education_score * 0.05
+        + domain_score * 0.05
+    )
+    final_score = round(max(0, min(100, final_score)), 2)
+    breakdown = {
+        "semantic_score": round(max(0, min(100, semantic_score)), 2),
+        "skill_score": round(max(0, min(100, skill_score)), 2),
+        "experience_score": round(experience_score, 2),
+        "education_score": round(education_score, 2),
+        "domain_score": round(domain_score, 2),
+        "weights": {
+            "semantic": 0.50,
+            "skill": 0.30,
+            "experience": 0.10,
+            "education": 0.05,
+            "domain": 0.05,
+        },
+    }
+    summary = generate_ai_summary(final_score, breakdown, matched, missing)
 
     return {
-        "score": round(max(0, min(100, final_score)), 2),
+        "score": final_score,
+        "semantic_score": breakdown["semantic_score"],
+        "skill_score": breakdown["skill_score"],
+        "breakdown": breakdown,
         "matched_skills": ", ".join(matched),
         "missing_skills": ", ".join(missing),
+        "summary": summary,
         "notes": note,
     }
 
@@ -80,20 +212,100 @@ def build_job_text(job):
 def split_skills(raw_text):
     if not raw_text:
         return []
-    parts = re.split(r"[,;\n|/]+", raw_text)
-    return [part.strip() for part in parts if part.strip()]
+    parts = re.split(r"[,;\n|•]+|\s+/\s+", raw_text)
+    skills = []
+    seen = set()
+    for part in parts:
+        skill = canonicalize_skill(part)
+        if not skill:
+            continue
+        key = compact_skill_phrase(skill)
+        if key in seen:
+            continue
+        seen.add(key)
+        skills.append(skill)
+    return skills
+
+
+def detect_known_skills(text):
+    normalized_text = normalize_skill_phrase(text)
+    detected = []
+    for skill in SKILL_ALIASES:
+        if skill_in_text(skill, normalized_text):
+            detected.append(skill)
+    return dedupe_preserve_order(detected)
 
 
 def match_skills(cv_text, required_skills):
-    normalized_cv = normalize(cv_text)
+    normalized_cv = normalize_skill_phrase(cv_text)
     matched = []
     missing = []
     for skill in required_skills:
-        if normalize(skill) in normalized_cv:
-            matched.append(skill)
+        canonical_skill = canonicalize_skill(skill)
+        if not canonical_skill:
+            continue
+        if skill_in_text(canonical_skill, normalized_cv):
+            matched.append(canonical_skill)
         else:
-            missing.append(skill)
-    return matched, missing
+            missing.append(canonical_skill)
+    return dedupe_preserve_order(matched), dedupe_preserve_order(missing)
+
+
+def canonicalize_skill(skill):
+    cleaned = clean_skill_label(skill)
+    if not cleaned:
+        return ""
+    lookup = get_skill_alias_lookup()
+    return (
+        lookup.get(normalize_skill_phrase(cleaned))
+        or lookup.get(compact_skill_phrase(cleaned))
+        or cleaned
+    )
+
+
+def clean_skill_label(skill):
+    return re.sub(r"\s+", " ", (skill or "").strip(" \t\r\n-–—:")).strip()
+
+
+def skill_in_text(skill, normalized_cv):
+    aliases = SKILL_ALIASES.get(skill, [])
+    candidates = [skill, *aliases]
+    for candidate in candidates:
+        normalized_candidate = normalize_skill_phrase(candidate)
+        if phrase_in_text(normalized_candidate, normalized_cv):
+            return True
+    return False
+
+
+def phrase_in_text(phrase, text):
+    if not phrase:
+        return False
+    pattern = r"(?<![\w+#])" + re.escape(phrase) + r"(?![\w+#])"
+    return re.search(pattern, text) is not None
+
+
+def normalize_skill_phrase(text):
+    normalized = normalize(text)
+    normalized = re.sub(r"[._-]+", " ", normalized)
+    normalized = re.sub(r"[(){}\[\],;:|•]+", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized.strip()
+
+
+def compact_skill_phrase(text):
+    return re.sub(r"[^a-z0-9+#]+", "", normalize_skill_phrase(text))
+
+
+def dedupe_preserve_order(items):
+    result = []
+    seen = set()
+    for item in items:
+        key = compact_skill_phrase(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+    return result
 
 
 def semantic_similarity_score(cv_text, job_text):
@@ -105,6 +317,118 @@ def semantic_similarity_score(cv_text, job_text):
         score = fallback_keyword_similarity(cv_text, job_text) * 100
         note = "Fallback keyword similarity vi semantic model chua san sang: " + str(exc)
         return score, note[:500]
+
+
+def detect_experience_signal(text):
+    normalized_text = normalize_skill_phrase(text)
+    year_matches = re.findall(r"(\d{1,2})\s*(?:\+?\s*)?(?:nam|year|years)\s+(?:kinh nghiem|experience)", normalized_text)
+    if year_matches:
+        max_years = max(int(value) for value in year_matches)
+        return min(100, 35 + max_years * 15)
+    if any(keyword in normalized_text for keyword in ["kinh nghiem", "experience", "worked", "phat trien", "developed"]):
+        return 55
+    return 20
+
+
+def detect_education_signal(text):
+    normalized_text = normalize_skill_phrase(text)
+    if any(keyword in normalized_text for keyword in ["dai hoc", "university", "bachelor", "engineer", "computer science"]):
+        return 85
+    if any(keyword in normalized_text for keyword in ["education", "hoc van", "degree", "certification", "certificate"]):
+        return 65
+    return 25
+
+
+def detect_domain_signal(cv_text, job_text):
+    cv_tokens = set(tokenize(cv_text))
+    job_tokens = set(tokenize(job_text))
+    if not cv_tokens or not job_tokens:
+        return 0
+    shared = cv_tokens & job_tokens
+    return min(100, (len(shared) / max(1, len(job_tokens))) * 180)
+
+
+def generate_ai_summary(final_score, breakdown, matched, missing):
+    if final_score >= 85:
+        fit_label = "Ứng viên phù hợp cao với yêu cầu tuyển dụng."
+    elif final_score >= 70:
+        fit_label = "Ứng viên có mức phù hợp tốt, nên được xem kỹ."
+    elif final_score >= 50:
+        fit_label = "Ứng viên phù hợp trung bình, cần recruiter đánh giá thêm."
+    else:
+        fit_label = "Ứng viên đang thiếu nhiều tín hiệu phù hợp so với JD."
+
+    skill_line = ""
+    if matched:
+        skill_line = "Kỹ năng khớp nổi bật: " + ", ".join(matched[:5]) + "."
+    if missing:
+        missing_line = "Thiếu hoặc chưa thể hiện rõ: " + ", ".join(missing[:5]) + "."
+    else:
+        missing_line = "Không phát hiện kỹ năng bắt buộc nào bị thiếu."
+
+    signal_line = (
+        f"Semantic {breakdown['semantic_score']:.1f}, "
+        f"skill {breakdown['skill_score']:.1f}, "
+        f"kinh nghiệm {breakdown['experience_score']:.1f}."
+    )
+    return " ".join(part for part in [fit_label, skill_line, missing_line, signal_line] if part)
+
+
+def parse_cv_profile(cv_text):
+    text = cv_text or ""
+    links = extract_links(text)
+    return {
+        "email": extract_email(text),
+        "phone": extract_phone(text),
+        "links": links,
+        "skills": detect_known_skills(text),
+        "education_summary": summarize_section_signal(text, ["education", "hoc van", "dai hoc", "university", "bachelor"]),
+        "project_summary": summarize_section_signal(text, ["project", "du an", "portfolio", "github"]),
+    }
+
+
+def extract_email(text):
+    match = re.search(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", text or "")
+    return match.group(0) if match else ""
+
+
+def extract_phone(text):
+    phone_pattern = r"(?:\+?84|0)(?:[\s.-]?\d){8,10}"
+    match = re.search(phone_pattern, text or "")
+    if not match:
+        return ""
+    return re.sub(r"\s+", " ", match.group(0)).strip()
+
+
+def extract_links(text):
+    raw_links = re.findall(r"https?://[^\s)>\]]+|(?:github|linkedin)\.com/[^\s)>\]]+", text or "", flags=re.IGNORECASE)
+    links = []
+    seen = set()
+    for raw_link in raw_links:
+        link = raw_link.rstrip(".,;")
+        if not link.startswith("http"):
+            link = "https://" + link
+        parsed = urlparse(link)
+        if not parsed.netloc:
+            continue
+        key = link.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        links.append(link)
+    return links[:8]
+
+
+def summarize_section_signal(text, keywords):
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    normalized_keywords = [normalize_skill_phrase(keyword) for keyword in keywords]
+    snippets = []
+    for index, line in enumerate(lines):
+        normalized_line = normalize_skill_phrase(line)
+        if any(keyword in normalized_line for keyword in normalized_keywords):
+            window = lines[index : index + 3]
+            snippets.append(" / ".join(window))
+    return "\n".join(snippets[:2])[:700]
 
 
 def encode_texts(texts):
@@ -179,4 +503,6 @@ def tokenize(text):
 
 
 def normalize(text):
-    return (text or "").casefold()
+    value = unicodedata.normalize("NFKD", text or "")
+    value = "".join(char for char in value if not unicodedata.combining(char))
+    return value.casefold()
