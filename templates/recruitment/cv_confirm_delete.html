@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}Xóa CV{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <div class="section-panel p-4">
+      <h1 class="h4 mb-2">Xóa CV</h1>
+      <p class="text-muted-ats mb-4">
+        CV sẽ không còn xuất hiện trong danh sách và không thể dùng cho lần ứng tuyển mới.
+        Các đơn ứng tuyển đã gửi vẫn giữ CV này để nhà tuyển dụng có thể xem lại.
+      </p>
+      <div class="review-insight mb-4">
+        <div class="fw-bold">{{ cv_document }}</div>
+        <div class="small text-muted-ats">{{ cv_document.original_filename }}</div>
+      </div>
+      <form method="post" class="d-flex gap-2">
+        {% csrf_token %}
+        <button class="btn btn-outline-danger" type="submit">Xóa CV</button>
+        <a class="btn btn-outline-secondary" href="{% url 'cv_list' %}">Hủy</a>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from django.contrib.auth.models import User
+from django.core.management import call_command
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
@@ -11,6 +12,8 @@ class Command(BaseCommand):
     help = "Tao du lieu mau cho he thong ATS recruitment."
 
     def handle(self, *args, **options):
+        call_command("seed_skills")
+
         admin = ensure_user("admin", "admin@example.com", "admin12345", is_superuser=True, is_staff=True)
         recruiter = ensure_user("recruiter_demo", "recruiter@example.com", "demo12345")
         candidate = ensure_user("candidate_demo", "candidate@example.com", "demo12345")

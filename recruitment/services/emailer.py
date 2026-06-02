@@ -1,7 +1,10 @@
 from django.conf import settings
 from django.core.mail import send_mail
 
-from recruitment.models import Notification
+from recruitment.services.notifications import (
+    notify_candidate_application_success,
+    notify_candidate_status_update,
+)
 
 
 def send_application_success_email(application):
@@ -14,7 +17,7 @@ def send_application_success_email(application):
         f"ATS score hien tai: {application.ats_score:.2f}/100.\n\n"
         "He thong se thong bao khi nha tuyen dung cap nhat trang thai."
     )
-    Notification.objects.create(user=candidate_user, title=subject, message=message)
+    notify_candidate_application_success(application)
     send_if_configured(subject, message, [candidate_user.email])
 
 
@@ -26,7 +29,7 @@ def send_status_update_email(application):
         f"Trang thai ung tuyen cua ban cho vi tri {application.job.title} "
         f"da duoc cap nhat thanh: {application.get_status_display()}.\n"
     )
-    Notification.objects.create(user=candidate_user, title=subject, message=message)
+    notify_candidate_status_update(application)
     send_if_configured(subject, message, [candidate_user.email])
 
 

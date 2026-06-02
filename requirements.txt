@@ -1,4 +1,7 @@
 Django==4.2.27
+channels>=4,<5
+channels-redis>=4,<5
+daphne>=4,<5
 PyMuPDF>=1.24,<2
 sentence-transformers==3.0.1
 transformers==4.44.2

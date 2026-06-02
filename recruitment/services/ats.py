@@ -5,14 +5,15 @@ from collections import Counter
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.db.utils import OperationalError, ProgrammingError
 
-from recruitment.models import CVDocument
+from recruitment.models import CVDocument, Skill
 
 
 _TOKENIZER = None
 _MODEL = None
 
-SKILL_ALIASES = {
+DEFAULT_SKILL_ALIASES = {
     "Python": ["python"],
     "Django": ["django", "django framework"],
     "Django REST Framework": ["django rest framework", "drf"],
@@ -62,16 +63,53 @@ SKILL_ALIASES = {
 }
 
 
-def build_skill_alias_lookup():
+SKILL_ALIASES = DEFAULT_SKILL_ALIASES
+SKILL_ALIAS_MAP = None
+SKILL_ALIAS_LOOKUP = None
+
+
+def reset_skill_alias_cache():
+    global SKILL_ALIAS_MAP, SKILL_ALIAS_LOOKUP
+    SKILL_ALIAS_MAP = None
+    SKILL_ALIAS_LOOKUP = None
+
+
+def build_runtime_skill_aliases():
+    alias_map = {
+        canonical: set([canonical, *aliases])
+        for canonical, aliases in DEFAULT_SKILL_ALIASES.items()
+    }
+    try:
+        skills = Skill.objects.filter(is_active=True).prefetch_related("aliases")
+        for skill in skills:
+            aliases = alias_map.setdefault(skill.name, set())
+            aliases.add(skill.name)
+            for alias in skill.aliases.all():
+                if alias.is_active:
+                    aliases.add(alias.alias)
+    except (OperationalError, ProgrammingError):
+        pass
+    return {
+        canonical: sorted(aliases, key=lambda value: normalize_skill_phrase(value))
+        for canonical, aliases in alias_map.items()
+    }
+
+
+def get_skill_aliases():
+    global SKILL_ALIAS_MAP
+    if SKILL_ALIAS_MAP is None:
+        SKILL_ALIAS_MAP = build_runtime_skill_aliases()
+    return SKILL_ALIAS_MAP
+
+
+def build_skill_alias_lookup(alias_map=None):
+    alias_map = alias_map or get_skill_aliases()
     lookup = {}
-    for canonical, aliases in SKILL_ALIASES.items():
+    for canonical, aliases in alias_map.items():
         for alias in [canonical, *aliases]:
             lookup[normalize_skill_phrase(alias)] = canonical
             lookup[compact_skill_phrase(alias)] = canonical
     return lookup
-
-
-SKILL_ALIAS_LOOKUP = None
 
 
 def get_skill_alias_lookup():
@@ -230,7 +268,7 @@ def split_skills(raw_text):
 def detect_known_skills(text):
     normalized_text = normalize_skill_phrase(text)
     detected = []
-    for skill in SKILL_ALIASES:
+    for skill in get_skill_aliases():
         if skill_in_text(skill, normalized_text):
             detected.append(skill)
     return dedupe_preserve_order(detected)
@@ -268,7 +306,7 @@ def clean_skill_label(skill):
 
 
 def skill_in_text(skill, normalized_cv):
-    aliases = SKILL_ALIASES.get(skill, [])
+    aliases = get_skill_aliases().get(skill, [])
     candidates = [skill, *aliases]
     for candidate in candidates:
         normalized_candidate = normalize_skill_phrase(candidate)

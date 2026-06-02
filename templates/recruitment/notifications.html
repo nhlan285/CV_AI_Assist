@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}Thông báo{% endblock %}
+
+{% block content %}
+<div class="page-heading">
+  <div>
+    <h1 class="h3 mb-1">Thông báo</h1>
+    <p class="text-muted-ats mb-0">{{ unread_count }} thông báo chưa đọc</p>
+  </div>
+  <button class="btn btn-outline-primary" type="button" data-page-read-all-url="{% url 'notifications_mark_all_read' %}">
+    Đã đọc tất cả
+  </button>
+</div>
+
+<div class="filter-toolbar mb-3">
+  <div class="filter-toolbar-title">Bộ lọc</div>
+  <div class="segmented-control">
+    <a href="{% url 'notifications_page' %}" class="{% if view_filter == 'all' %}active{% endif %}">Tất cả</a>
+    <a href="{% url 'notifications_page' %}?filter=unread" class="{% if view_filter == 'unread' %}active{% endif %}">Chưa đọc</a>
+  </div>
+</div>
+
+<div class="section-panel notification-page-list" data-notification-page-list>
+  {% for notification in notifications %}
+    <button
+      class="notification-page-item {% if not notification.is_read %}is-unread{% endif %}"
+      type="button"
+      data-page-notification
+      data-read-url="{% url 'notification_mark_read' notification.pk %}"
+      data-target="{{ notification.target_url }}"
+    >
+      <span class="notification-page-main">
+        <span class="notification-title">
+          {{ notification.title }}
+          {% if notification.count > 1 %}<span class="notification-count">{{ notification.count }}</span>{% endif %}
+        </span>
+        <span class="notification-message">{{ notification.message }}</span>
+        <span class="notification-time">{{ notification.last_event_at|date:"d/m/Y H:i" }}</span>
+      </span>
+      {% if not notification.is_read %}
+        <span class="notification-dot" aria-hidden="true"></span>
+      {% endif %}
+    </button>
+  {% empty %}
+    <div class="empty-state">
+      <div class="empty-state-title">Chưa có thông báo.</div>
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  (function () {
+    const list = document.querySelector("[data-notification-page-list]");
+    if (!list) return;
+    const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content") || "";
+
+    function postJson(url) {
+      return fetch(url, {
+        method: "POST",
+        headers: {
+          "X-CSRFToken": csrfToken,
+          "X-Requested-With": "XMLHttpRequest",
+        },
+      }).then((response) => response.json());
+    }
+
+    list.addEventListener("click", function (event) {
+      const item = event.target.closest("[data-page-notification]");
+      if (!item) return;
+      postJson(item.dataset.readUrl).then((data) => {
+        const target = item.dataset.target || data.target_url;
+        if (target) window.location.href = target;
+      });
+    });
+
+    const readAllButton = document.querySelector("[data-page-read-all-url]");
+    if (readAllButton) {
+      readAllButton.addEventListener("click", function () {
+        postJson(readAllButton.dataset.pageReadAllUrl).then(() => window.location.reload());
+      });
+    }
+  })();
+</script>
+{% endblock %}

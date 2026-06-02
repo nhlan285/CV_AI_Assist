@@ -217,7 +217,7 @@ class ApplicationForm(BootstrapFormMixin, forms.ModelForm):
     def __init__(self, *args, candidate=None, **kwargs):
         super().__init__(*args, **kwargs)
         if candidate:
-            self.fields["cv"].queryset = candidate.cv_documents.all()
+            self.fields["cv"].queryset = candidate.cv_documents.filter(is_deleted=False)
 
 
 class ApplicationStatusForm(BootstrapFormMixin, forms.ModelForm):

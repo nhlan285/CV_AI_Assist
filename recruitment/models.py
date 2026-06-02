@@ -147,12 +147,21 @@ class CVDocument(models.Model):
     )
     parse_error = models.TextField(blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
+    is_deleted = models.BooleanField(default=False, db_index=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-uploaded_at"]
 
     def __str__(self):
         return self.title or self.original_filename or f"CV #{self.pk}"
+
+    def soft_delete(self):
+        if self.is_deleted:
+            return
+        self.is_deleted = True
+        self.deleted_at = timezone.now()
+        self.save(update_fields=["is_deleted", "deleted_at"])
 
 
 class Application(models.Model):
@@ -220,15 +229,82 @@ class SavedJob(models.Model):
         return f"{self.candidate} saved {self.job}"
 
 
-class Notification(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="notifications")
-    title = models.CharField(max_length=180)
-    message = models.TextField()
-    is_read = models.BooleanField(default=False)
+class Skill(models.Model):
+    name = models.CharField(max_length=120, unique=True)
+    category = models.CharField(max_length=80, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        reset_ats_skill_cache()
+
+    def delete(self, *args, **kwargs):
+        result = super().delete(*args, **kwargs)
+        reset_ats_skill_cache()
+        return result
+
+
+class SkillAlias(models.Model):
+    skill = models.ForeignKey(Skill, on_delete=models.CASCADE, related_name="aliases")
+    alias = models.CharField(max_length=120)
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["alias"]
+        constraints = [
+            models.UniqueConstraint(fields=["skill", "alias"], name="unique_skill_alias")
+        ]
+
+    def __str__(self):
+        return f"{self.alias} -> {self.skill.name}"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        reset_ats_skill_cache()
+
+    def delete(self, *args, **kwargs):
+        result = super().delete(*args, **kwargs)
+        reset_ats_skill_cache()
+        return result
+
+
+def reset_ats_skill_cache():
+    try:
+        from recruitment.services.ats import reset_skill_alias_cache
+    except Exception:
+        return
+    reset_skill_alias_cache()
+
+
+class Notification(models.Model):
+    class Type(models.TextChoices):
+        APPLICATION_SUCCESS = "application_success", "Ứng tuyển thành công"
+        APPLICATION_STATUS = "application_status", "Cập nhật ứng tuyển"
+        NEW_APPLICATION = "new_application", "Đơn ứng tuyển mới"
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="notifications")
+    title = models.CharField(max_length=180)
+    message = models.TextField()
+    notification_type = models.CharField(max_length=40, choices=Type.choices, blank=True)
+    target_url = models.CharField(max_length=255, blank=True)
+    group_key = models.CharField(max_length=120, blank=True, db_index=True)
+    count = models.PositiveIntegerField(default=1)
+    metadata = models.JSONField(default=dict, blank=True)
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_event_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ["-last_event_at", "-created_at"]
 
     def __str__(self):
         return self.title

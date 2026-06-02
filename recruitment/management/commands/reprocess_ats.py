@@ -16,7 +16,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         if not options["applications_only"]:
-            for cv_document in CVDocument.objects.all():
+            for cv_document in CVDocument.objects.filter(is_deleted=False):
                 try:
                     ensure_cv_text(cv_document)
                 except Exception as exc:

@@ -6,7 +6,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}AI ATS Recruitment{% endblock %}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="{% static 'recruitment/app.css' %}?v=2" rel="stylesheet">
+  <link href="{% static 'recruitment/app.css' %}?v=4" rel="stylesheet">
+  {% if user.is_authenticated %}
+    <meta name="csrf-token" content="{{ csrf_token }}">
+  {% endif %}
 </head>
 <body>
   <div class="app-shell">
@@ -37,6 +40,31 @@
 
         <div class="topbar-actions">
           {% if user.is_authenticated %}
+            <div
+              class="notification-root"
+              data-notification-root
+              data-poll-url="{% url 'notifications_poll' %}"
+              data-read-all-url="{% url 'notifications_mark_all_read' %}"
+              data-read-url-template="{% url 'notification_mark_read' 0 %}"
+            >
+              <button class="btn btn-icon notification-trigger" type="button" data-notification-bell aria-label="Thông báo" aria-expanded="false">
+                <svg class="notification-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M15 18a3 3 0 0 1-6 0" />
+                  <path d="M18 10a6 6 0 0 0-12 0c0 7-3 7-3 8h18c0-1-3-1-3-8" />
+                </svg>
+                <span class="notification-badge" data-notification-badge hidden>0</span>
+              </button>
+              <div class="notification-menu" data-notification-menu aria-label="Thông báo">
+                <div class="notification-menu-head">
+                  <strong>Thông báo</strong>
+                  <button class="btn btn-link btn-sm p-0" type="button" data-notification-read-all>Đã đọc tất cả</button>
+                </div>
+                <div class="notification-list" data-notification-list>
+                  <div class="notification-empty">Đang tải...</div>
+                </div>
+                <a class="notification-menu-footer" href="{% url 'notifications_page' %}">Xem tất cả</a>
+              </div>
+            </div>
             <span class="user-chip">{{ user.username }}</span>
             <form method="post" action="{% url 'logout' %}">
               {% csrf_token %}
@@ -115,6 +143,129 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  {% if user.is_authenticated %}
+    <script>
+      (function () {
+        const root = document.querySelector("[data-notification-root]");
+        if (!root) return;
+
+        const bell = root.querySelector("[data-notification-bell]");
+        const menu = root.querySelector("[data-notification-menu]");
+        const list = root.querySelector("[data-notification-list]");
+        const badge = root.querySelector("[data-notification-badge]");
+        const readAllButton = root.querySelector("[data-notification-read-all]");
+        const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content") || "";
+
+        function escapeHtml(value) {
+          const div = document.createElement("div");
+          div.textContent = value || "";
+          return div.innerHTML;
+        }
+
+        function escapeAttr(value) {
+          return escapeHtml(value).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+        }
+
+        function setBadge(count) {
+          const total = Number(count || 0);
+          badge.textContent = total > 99 ? "99+" : String(total);
+          badge.hidden = total <= 0;
+        }
+
+        function readUrl(id) {
+          return root.dataset.readUrlTemplate.replace("/0/", "/" + id + "/");
+        }
+
+        function renderNotifications(items) {
+          if (!items.length) {
+            list.innerHTML = '<div class="notification-empty">Chưa có thông báo.</div>';
+            return;
+          }
+
+          list.innerHTML = items.map((item) => {
+            const unreadClass = item.is_read ? "" : " is-unread";
+            const count = item.count > 1 ? '<span class="notification-count">' + item.count + '</span>' : "";
+            return (
+              '<button class="notification-item' + unreadClass + '" type="button" data-notification-item data-id="' + item.id + '" data-target="' + escapeAttr(item.target_url || "") + '">' +
+                '<span class="notification-item-main">' +
+                  '<span class="notification-title">' + escapeHtml(item.title) + count + '</span>' +
+                  '<span class="notification-message">' + escapeHtml(item.message) + '</span>' +
+                  '<span class="notification-time">' + escapeHtml(item.last_event_label) + '</span>' +
+                '</span>' +
+              '</button>'
+            );
+          }).join("");
+        }
+
+        function fetchNotifications() {
+          return fetch(root.dataset.pollUrl, {headers: {"X-Requested-With": "XMLHttpRequest"}})
+            .then((response) => response.json())
+            .then((data) => {
+              setBadge(data.unread_count);
+              renderNotifications(data.notifications || []);
+            })
+            .catch(function () {});
+        }
+
+        function postJson(url) {
+          return fetch(url, {
+            method: "POST",
+            headers: {
+              "X-CSRFToken": csrfToken,
+              "X-Requested-With": "XMLHttpRequest",
+            },
+          }).then((response) => response.json());
+        }
+
+        bell.addEventListener("click", function () {
+          const opened = root.classList.toggle("is-open");
+          bell.setAttribute("aria-expanded", opened ? "true" : "false");
+          if (opened) fetchNotifications();
+        });
+
+        document.addEventListener("click", function (event) {
+          if (!root.contains(event.target)) {
+            root.classList.remove("is-open");
+            bell.setAttribute("aria-expanded", "false");
+          }
+        });
+
+        list.addEventListener("click", function (event) {
+          const item = event.target.closest("[data-notification-item]");
+          if (!item) return;
+          postJson(readUrl(item.dataset.id)).then((data) => {
+            setBadge(data.unread_count);
+            const target = item.dataset.target || data.target_url;
+            if (target) window.location.href = target;
+          });
+        });
+
+        readAllButton.addEventListener("click", function () {
+          postJson(root.dataset.readAllUrl).then(() => fetchNotifications());
+        });
+
+        function connectSocket() {
+          if (!("WebSocket" in window)) return;
+          const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+          const socket = new WebSocket(protocol + "://" + window.location.host + "/ws/notifications/");
+          socket.onmessage = function (event) {
+            try {
+              const payload = JSON.parse(event.data);
+              setBadge(payload.unread_count);
+              fetchNotifications();
+            } catch (error) {}
+          };
+          socket.onclose = function () {
+            window.setTimeout(connectSocket, 8000);
+          };
+        }
+
+        fetchNotifications();
+        connectSocket();
+        window.setInterval(fetchNotifications, 60000);
+      })();
+    </script>
+  {% endif %}
   {% block extra_scripts %}{% endblock %}
 </body>
 </html>

@@ -5,8 +5,10 @@ from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView
 from django.db.models import Avg, Count, Max, Q
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.views.decorators.http import require_POST
 
 from .forms import (
     ApplicationForm,
@@ -19,9 +21,10 @@ from .forms import (
     RecruiterRegistrationForm,
     VietnameseAuthenticationForm,
 )
-from .models import Application, Company, CVDocument, JobPost, SavedJob
+from .models import Application, Company, CVDocument, JobPost, Notification, SavedJob
 from .services.ats import calculate_application_ats, ensure_cv_text
 from .services.emailer import send_application_success_email, send_status_update_email
+from .services.notifications import notify_recruiter_new_application, serialize_notification
 
 
 SCORE_GROUPS = [
@@ -29,6 +32,12 @@ SCORE_GROUPS = [
     ("50_69", "50-69"),
     ("70_84", "70-84"),
     ("85_100", "85-100"),
+]
+
+
+JOB_SORT_CHOICES = [
+    ("newest", "Mới nhất trước"),
+    ("oldest", "Cũ nhất trước"),
 ]
 
 
@@ -108,6 +117,16 @@ def score_bucket_counts(applications):
     ]
 
 
+def normalize_job_sort(sort_value):
+    return sort_value if sort_value in dict(JOB_SORT_CHOICES) else "newest"
+
+
+def apply_job_sort(jobs, sort_value):
+    if sort_value == "oldest":
+        return jobs.order_by("created_at", "id")
+    return jobs.order_by("-created_at", "-id")
+
+
 def candidate_required(view_func):
     @login_required
     def wrapper(request, *args, **kwargs):
@@ -135,6 +154,7 @@ def job_list(request):
     skill = request.GET.get("skill", "").strip()
     work_mode = request.GET.get("work_mode", "").strip()
     job_type = request.GET.get("job_type", "").strip()
+    sort = normalize_job_sort(request.GET.get("sort", "newest").strip())
 
     if q:
         jobs = jobs.filter(
@@ -153,18 +173,23 @@ def job_list(request):
     if job_type:
         jobs = jobs.filter(job_type=job_type)
 
+    jobs = apply_job_sort(jobs, sort)
+    job_count = jobs.count()
     return render(
         request,
         "recruitment/job_list.html",
         {
             "jobs": jobs,
+            "job_count": job_count,
             "filters": {
                 "q": q,
                 "location": location,
                 "skill": skill,
                 "work_mode": work_mode,
                 "job_type": job_type,
+                "sort": sort,
             },
+            "sort_choices": JOB_SORT_CHOICES,
             "work_modes": JobPost.WorkMode.choices,
             "job_types": JobPost.JobType.choices,
         },
@@ -224,12 +249,66 @@ def dashboard(request):
     return render(request, "recruitment/403.html", status=403)
 
 
+@login_required
+def notifications_page(request):
+    view_filter = request.GET.get("filter", "all")
+    notifications = request.user.notifications.all()
+    if view_filter == "unread":
+        notifications = notifications.filter(is_read=False)
+    else:
+        view_filter = "all"
+    return render(
+        request,
+        "recruitment/notifications.html",
+        {
+            "notifications": notifications,
+            "view_filter": view_filter,
+            "unread_count": request.user.notifications.filter(is_read=False).count(),
+        },
+    )
+
+
+@login_required
+def notifications_poll(request):
+    notifications = request.user.notifications.all()[:8]
+    return JsonResponse(
+        {
+            "unread_count": request.user.notifications.filter(is_read=False).count(),
+            "notifications": [serialize_notification(notification) for notification in notifications],
+        }
+    )
+
+
+@login_required
+@require_POST
+def notification_mark_read(request, pk):
+    notification = get_object_or_404(Notification, pk=pk, user=request.user)
+    if not notification.is_read:
+        notification.is_read = True
+        notification.save(update_fields=["is_read"])
+    return JsonResponse(
+        {
+            "ok": True,
+            "target_url": notification.target_url,
+            "unread_count": request.user.notifications.filter(is_read=False).count(),
+        }
+    )
+
+
+@login_required
+@require_POST
+def notifications_mark_all_read(request):
+    updated = request.user.notifications.filter(is_read=False).update(is_read=True)
+    return JsonResponse({"ok": True, "updated": updated, "unread_count": 0})
+
+
 @candidate_required
 def candidate_dashboard(request):
     candidate = request.user.candidate_profile
     applications = candidate.applications.select_related("job", "job__company").all()
     saved_jobs = candidate.saved_jobs.select_related("job", "job__company").all()[:5]
     recommended_jobs = JobPost.objects.filter(is_active=True).select_related("company")[:6]
+    active_cv_documents = candidate.cv_documents.filter(is_deleted=False)
     return render(
         request,
         "recruitment/candidate_dashboard.html",
@@ -237,7 +316,7 @@ def candidate_dashboard(request):
             "candidate": candidate,
             "applications": applications[:5],
             "application_count": applications.count(),
-            "cv_count": candidate.cv_documents.count(),
+            "cv_count": active_cv_documents.count(),
             "saved_jobs": saved_jobs,
             "recommended_jobs": recommended_jobs,
         },
@@ -273,8 +352,24 @@ def cv_list(request):
     return render(
         request,
         "recruitment/cv_list.html",
-        {"form": form, "cv_documents": candidate.cv_documents.all()},
+        {"form": form, "cv_documents": candidate.cv_documents.filter(is_deleted=False)},
     )
+
+
+@candidate_required
+def cv_delete(request, pk):
+    candidate = request.user.candidate_profile
+    cv_document = get_object_or_404(
+        CVDocument,
+        pk=pk,
+        candidate=candidate,
+        is_deleted=False,
+    )
+    if request.method == "POST":
+        cv_document.soft_delete()
+        messages.success(request, "Đã xóa CV khỏi danh sách sử dụng.")
+        return redirect("cv_list")
+    return render(request, "recruitment/cv_confirm_delete.html", {"cv_document": cv_document})
 
 
 @candidate_required
@@ -317,7 +412,7 @@ def apply_job(request, pk):
     if Application.objects.filter(candidate=candidate, job=job).exists():
         messages.info(request, "Bạn đã ứng tuyển công việc này.")
         return redirect("job_detail", pk=job.pk)
-    if not candidate.cv_documents.exists():
+    if not candidate.cv_documents.filter(is_deleted=False).exists():
         messages.warning(request, "Bạn cần upload CV PDF trước khi ứng tuyển.")
         return redirect("cv_list")
 
@@ -344,6 +439,7 @@ def apply_job(request, pk):
         application.ai_summary = result["summary"]
         application.ats_notes = result["notes"]
         application.save()
+        notify_recruiter_new_application(application)
         send_application_success_email(application)
         messages.success(request, "Ứng tuyển thành công. Email thông báo sẽ được gửi nếu SMTP đã cấu hình.")
         return redirect("application_history")
@@ -444,7 +540,36 @@ def company_update(request):
 @recruiter_required
 def recruiter_jobs(request):
     jobs = request.user.company.jobs.annotate(application_total=Count("applications"))
-    return render(request, "recruitment/recruiter_jobs.html", {"jobs": jobs})
+    q = request.GET.get("q", "").strip()
+    status = request.GET.get("status", "").strip()
+    sort = normalize_job_sort(request.GET.get("sort", "newest").strip())
+
+    if q:
+        jobs = jobs.filter(
+            Q(title__icontains=q)
+            | Q(location__icontains=q)
+            | Q(required_skills__icontains=q)
+            | Q(description__icontains=q)
+            | Q(requirements__icontains=q)
+        )
+    if status == "active":
+        jobs = jobs.filter(is_active=True)
+    elif status == "inactive":
+        jobs = jobs.filter(is_active=False)
+    else:
+        status = ""
+
+    jobs = apply_job_sort(jobs, sort)
+    return render(
+        request,
+        "recruitment/recruiter_jobs.html",
+        {
+            "jobs": jobs,
+            "job_count": jobs.count(),
+            "filters": {"q": q, "status": status, "sort": sort},
+            "sort_choices": JOB_SORT_CHOICES,
+        },
+    )
 
 
 @recruiter_required

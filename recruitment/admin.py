@@ -9,6 +9,8 @@ from .models import (
     Notification,
     RecruiterProfile,
     SavedJob,
+    Skill,
+    SkillAlias,
 )
 
 
@@ -39,8 +41,16 @@ class JobPostAdmin(admin.ModelAdmin):
 
 @admin.register(CVDocument)
 class CVDocumentAdmin(admin.ModelAdmin):
-    list_display = ("title", "candidate", "original_filename", "parse_status", "extracted_email", "uploaded_at")
-    list_filter = ("parse_status", "uploaded_at")
+    list_display = (
+        "title",
+        "candidate",
+        "original_filename",
+        "parse_status",
+        "is_deleted",
+        "extracted_email",
+        "uploaded_at",
+    )
+    list_filter = ("parse_status", "is_deleted", "uploaded_at", "deleted_at")
     search_fields = (
         "title",
         "candidate__full_name",
@@ -65,8 +75,29 @@ class SavedJobAdmin(admin.ModelAdmin):
     search_fields = ("candidate__full_name", "job__title")
 
 
+class SkillAliasInline(admin.TabularInline):
+    model = SkillAlias
+    extra = 1
+    fields = ("alias", "is_active")
+
+
+@admin.register(Skill)
+class SkillAdmin(admin.ModelAdmin):
+    list_display = ("name", "category", "is_active", "updated_at")
+    list_filter = ("is_active", "category")
+    search_fields = ("name", "aliases__alias")
+    inlines = [SkillAliasInline]
+
+
+@admin.register(SkillAlias)
+class SkillAliasAdmin(admin.ModelAdmin):
+    list_display = ("alias", "skill", "is_active", "created_at")
+    list_filter = ("is_active", "skill__category")
+    search_fields = ("alias", "skill__name")
+
+
 @admin.register(Notification)
 class NotificationAdmin(admin.ModelAdmin):
-    list_display = ("title", "user", "is_read", "created_at")
-    list_filter = ("is_read", "created_at")
-    search_fields = ("title", "message", "user__username")
+    list_display = ("title", "user", "notification_type", "count", "is_read", "last_event_at")
+    list_filter = ("notification_type", "is_read", "last_event_at", "created_at")
+    search_fields = ("title", "message", "group_key", "user__username")

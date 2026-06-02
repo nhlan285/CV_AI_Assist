@@ -3,29 +3,95 @@
 {% block title %}Bài tuyển dụng{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-  <h1 class="h3 mb-0">Bài tuyển dụng</h1>
+<div class="page-heading">
+  <div>
+    <h1 class="h3 mb-1">Bài tuyển dụng</h1>
+    <p class="text-muted-ats mb-0">{{ job_count }} bài trong danh sách</p>
+  </div>
   <a class="btn btn-primary" href="{% url 'job_create' %}">Đăng việc mới</a>
 </div>
 
-<div class="section-panel p-4">
+<form class="search-filter-panel mb-4" method="get">
+  <div class="search-main-row">
+    <label class="search-field" for="q">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="11" cy="11" r="7"></circle>
+        <path d="m16.5 16.5 4 4"></path>
+      </svg>
+      <span class="visually-hidden">Từ khóa</span>
+      <input id="q" name="q" value="{{ filters.q }}" placeholder="Tìm theo tiêu đề, địa điểm, kỹ năng">
+    </label>
+
+    <label class="sort-field" for="sort">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M3 5h18"></path>
+        <path d="M6 12h12"></path>
+        <path d="M10 19h4"></path>
+      </svg>
+      <span class="visually-hidden">Sắp xếp</span>
+      <select id="sort" name="sort">
+        {% for value,label in sort_choices %}
+          <option value="{{ value }}" {% if filters.sort == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="compact-select" for="status">
+      <span class="visually-hidden">Trạng thái</span>
+      <select id="status" name="status">
+        <option value="" {% if not filters.status %}selected{% endif %}>Tất cả trạng thái</option>
+        <option value="active" {% if filters.status == "active" %}selected{% endif %}>Đang tuyển</option>
+        <option value="inactive" {% if filters.status == "inactive" %}selected{% endif %}>Tạm ẩn</option>
+      </select>
+    </label>
+
+    <button class="btn btn-primary" type="submit">
+      <svg class="btn-svg" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="11" cy="11" r="7"></circle>
+        <path d="m16.5 16.5 4 4"></path>
+      </svg>
+      Tìm
+    </button>
+    <a class="btn btn-outline-secondary" href="{% url 'recruiter_jobs' %}">Xóa lọc</a>
+  </div>
+</form>
+
+<div class="section-panel">
   <div class="table-responsive">
     <table class="table">
-      <thead><tr><th>Tiêu đề</th><th>Địa điểm</th><th>Trạng thái</th><th>Ứng viên</th><th></th></tr></thead>
+      <thead>
+        <tr>
+          <th>Tiêu đề</th>
+          <th>Địa điểm</th>
+          <th>Ngày tạo</th>
+          <th>Trạng thái</th>
+          <th>Ứng viên</th>
+          <th></th>
+        </tr>
+      </thead>
       <tbody>
         {% for job in jobs %}
           <tr>
             <td><a href="{% url 'job_detail' job.pk %}">{{ job.title }}</a></td>
             <td>{{ job.location }}</td>
-            <td>{% if job.is_active %}<span class="badge badge-soft">Đang tuyển</span>{% else %}<span class="badge text-bg-secondary">Tạm ẩn</span>{% endif %}</td>
+            <td>{{ job.created_at|date:"d/m/Y" }}</td>
+            <td>
+              {% if job.is_active %}
+                <span class="badge badge-soft">Đang tuyển</span>
+              {% else %}
+                <span class="badge text-bg-secondary">Tạm ẩn</span>
+              {% endif %}
+            </td>
             <td><a href="{% url 'recruiter_job_applications' job.pk %}">{{ job.application_total }}</a></td>
-            <td class="text-end">
+            <td class="text-end table-actions">
               <a class="btn btn-outline-primary btn-sm" href="{% url 'job_update' job.pk %}">Sửa</a>
               <a class="btn btn-outline-danger btn-sm" href="{% url 'job_delete' job.pk %}">Xóa</a>
             </td>
           </tr>
         {% empty %}
-          <tr><td colspan="5" class="text-muted-ats">Chưa có bài tuyển dụng.</td></tr>
+          <tr>
+            <td colspan="6" class="empty-cell">Chưa có bài tuyển dụng phù hợp.</td>
+          </tr>
         {% endfor %}
       </tbody>
     </table>
