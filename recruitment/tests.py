@@ -24,6 +24,7 @@ from .services.ats import (
     calculate_application_ats,
     canonicalize_skill,
     match_skills,
+    match_skills_with_evidence,
     parse_cv_profile,
     reset_skill_alias_cache,
     split_skills,
@@ -118,6 +119,44 @@ class AtsUtilityTests(TestCase):
         self.assertTrue(parsed["education_summary"])
         self.assertTrue(parsed["project_summary"])
 
+    def test_spacy_parser_extracts_sections_and_skill_evidence(self):
+        parsed = parse_cv_profile(
+            """
+            Nguyen Van A
+            Experience
+            Built Django RESTful APIs for recruitment workflow.
+            Projects
+            Developed React dashboard with Chart.js.
+            Education
+            University of Technology
+            Certifications
+            AWS Cloud Practitioner
+            """
+        )
+
+        evidence_by_skill = {item["skill"]: item["section"] for item in parsed["skill_evidence"]}
+        self.assertEqual(evidence_by_skill["Django"], "experience")
+        self.assertEqual(evidence_by_skill["REST API"], "experience")
+        self.assertEqual(evidence_by_skill["React"], "projects")
+        self.assertIn("Built Django RESTful APIs", parsed["experience_summary"])
+        self.assertIn("Developed React dashboard", parsed["project_summary"])
+        self.assertIn("AWS Cloud Practitioner", parsed["certification_summary"])
+
+    def test_match_skills_with_evidence_returns_context_sections(self):
+        matched, missing, evidence = match_skills_with_evidence(
+            """
+            Experience
+            Built production Django APIs.
+            Projects
+            React reporting dashboard.
+            """,
+            ["Django", "React", "Docker"],
+        )
+
+        self.assertEqual(matched, ["Django", "React"])
+        self.assertEqual(missing, ["Docker"])
+        self.assertEqual({item["skill"]: item["section"] for item in evidence}, {"Django": "experience", "React": "projects"})
+
     @patch("recruitment.services.ats.semantic_similarity_score", return_value=(80, "semantic ok"))
     def test_calculate_application_ats_returns_breakdown_and_summary(self, _mock_semantic):
         recruiter = User.objects.create_user("ats_recruiter")
@@ -131,7 +170,12 @@ class AtsUtilityTests(TestCase):
             requirements="Python Django RESTful API",
         )
         result = calculate_application_ats(
-            "Python Django developer with RESTful APIs and 2 years experience. Bachelor degree.",
+            """
+            Experience
+            Python Django developer with RESTful APIs and 2 years experience.
+            Education
+            Bachelor degree.
+            """,
             job,
         )
         self.assertIn("breakdown", result)

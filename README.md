@@ -1,7 +1,7 @@
 # AI ATS Recruitment MVP
 
 Ung dung Django cho he thong tuyen dung AI ATS theo tai lieu `ATS_REQUIREMENTS.md`.
-Du an hien dung SQLite, Django template, Chart.js, HuggingFace MiniLM va Django Channels.
+Du an hien dung SQLite, Django template, Chart.js, HuggingFace MiniLM, spaCy va Django Channels.
 
 ## Cach chay local
 
@@ -37,10 +37,12 @@ Can dung Gmail App Password, khong dung mat khau Gmail chinh.
 - Phan quyen candidate/recruiter bang Django auth.
 - Recruiter dang ky kem tao cong ty ngay khi dang ky.
 - Candidate upload CV PDF, file luu trong `media/`, database luu duong dan va metadata.
-- CV parser doc text PDF bang PyMuPDF, trich email, phone, link, skill, education va project summary.
+- CV parser doc text PDF bang PyMuPDF, dung spaCy PhraseMatcher de nhan dien skill theo section/evidence.
+- Parser tach section CV: skills, experience, education, projects, certifications.
 - ATS scoring ket hop semantic score, skill score, experience, education va domain signal.
 - Semantic matching dung multilingual MiniLM qua HuggingFace `transformers`.
 - Skill dictionary/alias quan tri duoc trong Django Admin bang model `Skill` va `SkillAlias`.
+- Skill evidence duoc luu vao CV va ATS breakdown de recruiter xem ly do match.
 - Recruiter dashboard co metric card va Chart.js: timeline CV, ATS trung binh, status, score bucket, top job.
 - Man danh sach ung vien theo job co filter keyword, status, review status va ATS group.
 - Recruiter job list co search, status filter va sort moi nhat/cu nhat.
@@ -57,6 +59,7 @@ Can dung Gmail App Password, khong dung mat khau Gmail chinh.
 - MVP chi nhan CV PDF co text that, chua ho tro OCR file scan.
 - File CV luu trong `media/`, database chi luu duong dan va metadata.
 - Danh muc skill/alias co the quan tri trong Django Admin. Seed danh muc mac dinh bang `python manage.py seed_skills`.
+- spaCy dung `spacy.blank("xx")` va `PhraseMatcher`, khong can tai model ngon ngu lon trong MVP.
 - Semantic matching dung multilingual MiniLM model `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` qua HuggingFace `transformers`.
 - Neu model semantic chua san sang, service se fallback sang keyword similarity de khong lam hong flow ung tuyen.
 - Tinh lai CV parsing va ATS breakdown cho du lieu cu:

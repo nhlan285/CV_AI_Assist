@@ -139,7 +139,11 @@ class CVDocument(models.Model):
     extracted_links = models.JSONField(default=list, blank=True)
     extracted_skills = models.TextField(blank=True)
     education_summary = models.TextField(blank=True)
+    experience_summary = models.TextField(blank=True)
     project_summary = models.TextField(blank=True)
+    certification_summary = models.TextField(blank=True)
+    parsed_sections = models.JSONField(default=dict, blank=True)
+    skill_evidence = models.JSONField(default=list, blank=True)
     parse_status = models.CharField(
         max_length=20,
         choices=ParseStatus.choices,

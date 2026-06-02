@@ -39,7 +39,10 @@
                     {% if cv.extracted_email %}<div>{{ cv.extracted_email }}</div>{% endif %}
                     {% if cv.extracted_phone %}<div>{{ cv.extracted_phone }}</div>{% endif %}
                     {% if cv.extracted_skills %}<div class="text-muted-ats">{{ cv.extracted_skills|truncatechars:80 }}</div>{% endif %}
-                    {% if not cv.extracted_email and not cv.extracted_phone and not cv.extracted_skills %}<span class="text-muted-ats">-</span>{% endif %}
+                    {% if cv.skill_evidence %}<div class="text-muted-ats">{{ cv.skill_evidence|length }} bằng chứng skill</div>{% endif %}
+                    {% if cv.experience_summary %}<div class="text-muted-ats">Experience: {{ cv.experience_summary|truncatechars:70 }}</div>{% endif %}
+                    {% if cv.project_summary %}<div class="text-muted-ats">Project: {{ cv.project_summary|truncatechars:70 }}</div>{% endif %}
+                    {% if not cv.extracted_email and not cv.extracted_phone and not cv.extracted_skills and not cv.skill_evidence %}<span class="text-muted-ats">-</span>{% endif %}
                   </div>
                 </td>
                 <td><a href="{{ cv.file.url }}" target="_blank">Mở PDF</a></td>

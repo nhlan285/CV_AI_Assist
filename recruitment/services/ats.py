@@ -12,6 +12,58 @@ from recruitment.models import CVDocument, Skill
 
 _TOKENIZER = None
 _MODEL = None
+_SPACY_NLP = None
+_SPACY_MATCHER = None
+_SPACY_MATCHER_SIGNATURE = None
+
+SECTION_LABELS = {
+    "skills": [
+        "skills",
+        "technical skills",
+        "core skills",
+        "ky nang",
+        "ky nang chuyen mon",
+    ],
+    "experience": [
+        "experience",
+        "work experience",
+        "professional experience",
+        "employment",
+        "kinh nghiem",
+        "kinh nghiem lam viec",
+    ],
+    "education": [
+        "education",
+        "hoc van",
+        "dai hoc",
+        "university",
+        "academic",
+    ],
+    "projects": [
+        "projects",
+        "project",
+        "du an",
+        "portfolio",
+    ],
+    "certifications": [
+        "certifications",
+        "certification",
+        "certificates",
+        "chung chi",
+        "certificate",
+    ],
+}
+
+SECTION_ALIASES = None
+
+SECTION_WEIGHTS = {
+    "experience": 1.0,
+    "projects": 0.95,
+    "skills": 0.75,
+    "certifications": 0.7,
+    "education": 0.6,
+    "other": 0.45,
+}
 
 DEFAULT_SKILL_ALIASES = {
     "Python": ["python"],
@@ -69,9 +121,11 @@ SKILL_ALIAS_LOOKUP = None
 
 
 def reset_skill_alias_cache():
-    global SKILL_ALIAS_MAP, SKILL_ALIAS_LOOKUP
+    global SKILL_ALIAS_MAP, SKILL_ALIAS_LOOKUP, _SPACY_MATCHER, _SPACY_MATCHER_SIGNATURE
     SKILL_ALIAS_MAP = None
     SKILL_ALIAS_LOOKUP = None
+    _SPACY_MATCHER = None
+    _SPACY_MATCHER_SIGNATURE = None
 
 
 def build_runtime_skill_aliases():
@@ -134,7 +188,11 @@ def extract_pdf_text(file_path):
 
 def ensure_cv_text(cv_document):
     if cv_document.extracted_text and cv_document.parse_status == CVDocument.ParseStatus.PARSED:
-        if not cv_document.extracted_skills and not cv_document.extracted_email and not cv_document.extracted_phone:
+        if (
+            not cv_document.extracted_skills
+            and not cv_document.extracted_email
+            and not cv_document.extracted_phone
+        ) or not cv_document.skill_evidence or not cv_document.parsed_sections:
             populate_cv_parsed_fields(cv_document, cv_document.extracted_text)
         return cv_document.extracted_text
 
@@ -158,7 +216,11 @@ def ensure_cv_text(cv_document):
             "extracted_links",
             "extracted_skills",
             "education_summary",
+            "experience_summary",
             "project_summary",
+            "certification_summary",
+            "parsed_sections",
+            "skill_evidence",
             "parse_status",
             "parse_error",
         ]
@@ -173,7 +235,11 @@ def populate_cv_parsed_fields(cv_document, cv_text, save=True):
     cv_document.extracted_links = parsed_profile["links"]
     cv_document.extracted_skills = ", ".join(parsed_profile["skills"])
     cv_document.education_summary = parsed_profile["education_summary"]
+    cv_document.experience_summary = parsed_profile["experience_summary"]
     cv_document.project_summary = parsed_profile["project_summary"]
+    cv_document.certification_summary = parsed_profile["certification_summary"]
+    cv_document.parsed_sections = parsed_profile["sections"]
+    cv_document.skill_evidence = parsed_profile["skill_evidence"]
     if save:
         cv_document.save(
             update_fields=[
@@ -182,7 +248,11 @@ def populate_cv_parsed_fields(cv_document, cv_text, save=True):
                 "extracted_links",
                 "extracted_skills",
                 "education_summary",
+                "experience_summary",
                 "project_summary",
+                "certification_summary",
+                "parsed_sections",
+                "skill_evidence",
             ]
         )
 
@@ -191,11 +261,12 @@ def calculate_application_ats(cv_text, job):
     job_text = build_job_text(job)
     semantic_score, note = semantic_similarity_score(cv_text, job_text)
     skills = split_skills(job.required_skills)
-    matched, missing = match_skills(cv_text, skills)
-    skill_score = (len(matched) / len(skills)) * 100 if skills else 0
+    matched, missing, matched_evidence = match_skills_with_evidence(cv_text, skills)
+    skill_score = contextual_skill_score(skills, matched, matched_evidence)
     experience_score = detect_experience_signal(cv_text)
     education_score = detect_education_signal(cv_text)
     domain_score = detect_domain_signal(cv_text, job_text)
+    section_counts = Counter(item["section"] for item in matched_evidence)
 
     final_score = (
         semantic_score * 0.50
@@ -211,6 +282,8 @@ def calculate_application_ats(cv_text, job):
         "experience_score": round(experience_score, 2),
         "education_score": round(education_score, 2),
         "domain_score": round(domain_score, 2),
+        "skill_evidence": matched_evidence[:20],
+        "section_skill_counts": dict(section_counts),
         "weights": {
             "semantic": 0.50,
             "skill": 0.30,
@@ -266,6 +339,10 @@ def split_skills(raw_text):
 
 
 def detect_known_skills(text):
+    evidence = detect_skill_evidence(text)
+    if evidence:
+        return dedupe_preserve_order(item["skill"] for item in evidence)
+
     normalized_text = normalize_skill_phrase(text)
     detected = []
     for skill in get_skill_aliases():
@@ -287,6 +364,253 @@ def match_skills(cv_text, required_skills):
         else:
             missing.append(canonical_skill)
     return dedupe_preserve_order(matched), dedupe_preserve_order(missing)
+
+
+def match_skills_with_evidence(cv_text, required_skills):
+    all_evidence = detect_skill_evidence(cv_text)
+    evidence_by_skill = {}
+    for evidence in all_evidence:
+        evidence_by_skill.setdefault(evidence["skill"], []).append(evidence)
+
+    matched = []
+    missing = []
+    matched_evidence = []
+    normalized_cv = normalize_skill_phrase(cv_text)
+    for skill in required_skills:
+        canonical_skill = canonicalize_skill(skill)
+        if not canonical_skill:
+            continue
+        if canonical_skill in evidence_by_skill:
+            matched.append(canonical_skill)
+            matched_evidence.extend(evidence_by_skill[canonical_skill][:3])
+        elif skill_in_text(canonical_skill, normalized_cv):
+            matched.append(canonical_skill)
+            matched_evidence.append(
+                {
+                    "skill": canonical_skill,
+                    "alias": canonical_skill,
+                    "section": "other",
+                    "sentence": evidence_sentence(cv_text, canonical_skill),
+                    "start": -1,
+                    "end": -1,
+                }
+            )
+        else:
+            missing.append(canonical_skill)
+    return (
+        dedupe_preserve_order(matched),
+        dedupe_preserve_order(missing),
+        dedupe_skill_evidence(matched_evidence),
+    )
+
+
+def contextual_skill_score(required_skills, matched_skills, matched_evidence):
+    if not required_skills:
+        return 0
+    evidence_by_skill = {}
+    for evidence in matched_evidence:
+        evidence_by_skill.setdefault(evidence["skill"], []).append(evidence)
+
+    score = 0
+    for skill in dedupe_preserve_order(canonicalize_skill(value) for value in required_skills):
+        if skill not in matched_skills:
+            continue
+        best_weight = max(
+            (SECTION_WEIGHTS.get(item["section"], SECTION_WEIGHTS["other"]) for item in evidence_by_skill.get(skill, [])),
+            default=SECTION_WEIGHTS["other"],
+        )
+        score += best_weight * 100
+    return min(100, score / len(required_skills))
+
+
+def detect_skill_evidence(text):
+    try:
+        return detect_skill_evidence_with_spacy(text)
+    except Exception:
+        return detect_skill_evidence_with_rules(text)
+
+
+def detect_skill_evidence_with_spacy(text):
+    if not text:
+        return []
+    nlp, matcher = get_spacy_matcher()
+    doc = nlp(text)
+    sections = split_cv_sections(text)
+    evidence = []
+    for match_id, start, end in matcher(doc):
+        skill_name = nlp.vocab.strings[match_id]
+        span = doc[start:end]
+        evidence.append(
+            {
+                "skill": skill_name,
+                "alias": span.text,
+                "section": section_for_offset(sections, span.start_char),
+                "sentence": sentence_for_span(doc, span),
+                "start": span.start_char,
+                "end": span.end_char,
+            }
+        )
+    return dedupe_skill_evidence(evidence)
+
+
+def detect_skill_evidence_with_rules(text):
+    normalized_text = normalize_skill_phrase(text)
+    sections = split_cv_sections(text)
+    evidence = []
+    for skill in get_skill_aliases():
+        aliases = get_skill_aliases().get(skill, [])
+        for candidate in [skill, *aliases]:
+            normalized_candidate = normalize_skill_phrase(candidate)
+            match = re.search(
+                r"(?<![\w+#])" + re.escape(normalized_candidate) + r"(?![\w+#])",
+                normalized_text,
+            )
+            if not match:
+                continue
+            original_sentence = evidence_sentence(text, candidate)
+            evidence.append(
+                {
+                    "skill": skill,
+                    "alias": candidate,
+                    "section": section_for_sentence(sections, original_sentence),
+                    "sentence": original_sentence,
+                    "start": -1,
+                    "end": -1,
+                }
+            )
+            break
+    return dedupe_skill_evidence(evidence)
+
+
+def get_spacy_matcher():
+    global _SPACY_NLP, _SPACY_MATCHER, _SPACY_MATCHER_SIGNATURE
+    alias_map = get_skill_aliases()
+    signature = tuple(
+        (skill, tuple(sorted(aliases, key=normalize_skill_phrase)))
+        for skill, aliases in sorted(alias_map.items())
+    )
+    if _SPACY_NLP is not None and _SPACY_MATCHER is not None and _SPACY_MATCHER_SIGNATURE == signature:
+        return _SPACY_NLP, _SPACY_MATCHER
+
+    try:
+        import spacy
+        from spacy.matcher import PhraseMatcher
+    except ImportError as exc:
+        raise RuntimeError("Chua cai spaCy. Hay chay: pip install -r requirements.txt") from exc
+
+    nlp = spacy.blank("xx")
+    matcher = PhraseMatcher(nlp.vocab, attr="LOWER")
+    for skill, aliases in alias_map.items():
+        patterns = [nlp.make_doc(alias) for alias in [skill, *aliases] if alias]
+        if patterns:
+            matcher.add(skill, patterns)
+
+    _SPACY_NLP = nlp
+    _SPACY_MATCHER = matcher
+    _SPACY_MATCHER_SIGNATURE = signature
+    return _SPACY_NLP, _SPACY_MATCHER
+
+
+def split_cv_sections(text):
+    lines = (text or "").splitlines()
+    sections = []
+    current_section = "other"
+    current_start = 0
+    current_lines = []
+    cursor = 0
+    section_aliases = get_section_aliases()
+
+    for line in lines:
+        raw_line = line.rstrip()
+        normalized = normalize_skill_phrase(raw_line.strip(":-"))
+        next_cursor = cursor + len(line) + 1
+        detected_section = section_aliases.get(normalized)
+        if detected_section:
+            if current_lines:
+                sections.append(
+                    {
+                        "name": current_section,
+                        "start": current_start,
+                        "end": cursor,
+                        "text": "\n".join(current_lines).strip(),
+                    }
+                )
+            current_section = detected_section
+            current_start = next_cursor
+            current_lines = []
+        else:
+            current_lines.append(raw_line)
+        cursor = next_cursor
+
+    if current_lines or not sections:
+        sections.append(
+            {
+                "name": current_section,
+                "start": current_start,
+                "end": len(text or ""),
+                "text": "\n".join(current_lines).strip(),
+            }
+        )
+    return [section for section in sections if section["text"] or section["name"] != "other"]
+
+
+def get_section_aliases():
+    global SECTION_ALIASES
+    if SECTION_ALIASES is None:
+        SECTION_ALIASES = {
+            normalize_skill_phrase(alias): section
+            for section, aliases in SECTION_LABELS.items()
+            for alias in aliases
+        }
+    return SECTION_ALIASES
+
+
+def section_for_offset(sections, offset):
+    for section in sections:
+        if section["start"] <= offset <= section["end"]:
+            return section["name"]
+    return "other"
+
+
+def section_for_sentence(sections, sentence):
+    normalized_sentence = normalize_skill_phrase(sentence)
+    for section in sections:
+        if normalized_sentence and normalized_sentence in normalize_skill_phrase(section["text"]):
+            return section["name"]
+    return "other"
+
+
+def sentence_for_span(doc, span):
+    text = doc.text
+    start = text.rfind("\n", 0, span.start_char)
+    end = text.find("\n", span.end_char)
+    if end == -1:
+        end = len(text)
+    return text[start + 1 : end].strip()[:260]
+
+
+def evidence_sentence(text, phrase):
+    normalized_phrase = normalize_skill_phrase(phrase)
+    for line in (text or "").splitlines():
+        if normalized_phrase in normalize_skill_phrase(line):
+            return line.strip()[:260]
+    return ""
+
+
+def dedupe_skill_evidence(items):
+    result = []
+    seen = set()
+    for item in items:
+        key = (
+            compact_skill_phrase(item.get("skill", "")),
+            item.get("section", "other"),
+            normalize_skill_phrase(item.get("sentence", ""))[:120],
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+    return result
 
 
 def canonicalize_skill(skill):
@@ -404,24 +728,44 @@ def generate_ai_summary(final_score, breakdown, matched, missing):
     else:
         missing_line = "Không phát hiện kỹ năng bắt buộc nào bị thiếu."
 
+    evidence_sections = breakdown.get("section_skill_counts", {})
+    evidence_line = ""
+    if evidence_sections:
+        strong_sections = [
+            section for section in ["experience", "projects"] if evidence_sections.get(section)
+        ]
+        if strong_sections:
+            evidence_line = "Có bằng chứng skill trong " + ", ".join(strong_sections) + "."
+
     signal_line = (
         f"Semantic {breakdown['semantic_score']:.1f}, "
         f"skill {breakdown['skill_score']:.1f}, "
         f"kinh nghiệm {breakdown['experience_score']:.1f}."
     )
-    return " ".join(part for part in [fit_label, skill_line, missing_line, signal_line] if part)
+    return " ".join(part for part in [fit_label, skill_line, missing_line, evidence_line, signal_line] if part)
 
 
 def parse_cv_profile(cv_text):
     text = cv_text or ""
     links = extract_links(text)
+    sections = split_cv_sections(text)
+    section_map = {section["name"]: section["text"] for section in sections if section["text"]}
+    skill_evidence = detect_skill_evidence(text)
     return {
         "email": extract_email(text),
         "phone": extract_phone(text),
         "links": links,
-        "skills": detect_known_skills(text),
-        "education_summary": summarize_section_signal(text, ["education", "hoc van", "dai hoc", "university", "bachelor"]),
-        "project_summary": summarize_section_signal(text, ["project", "du an", "portfolio", "github"]),
+        "skills": dedupe_preserve_order(item["skill"] for item in skill_evidence) or detect_known_skills(text),
+        "education_summary": summarize_section(section_map.get("education"))
+        or summarize_section_signal(text, ["education", "hoc van", "dai hoc", "university", "bachelor"]),
+        "experience_summary": summarize_section(section_map.get("experience"))
+        or summarize_section_signal(text, ["experience", "kinh nghiem", "worked", "developed"]),
+        "project_summary": summarize_section(section_map.get("projects"))
+        or summarize_section_signal(text, ["project", "du an", "portfolio", "github"]),
+        "certification_summary": summarize_section(section_map.get("certifications"))
+        or summarize_section_signal(text, ["certification", "certificate", "chung chi"]),
+        "sections": serialize_sections(sections),
+        "skill_evidence": skill_evidence[:40],
     }
 
 
@@ -467,6 +811,21 @@ def summarize_section_signal(text, keywords):
             window = lines[index : index + 3]
             snippets.append(" / ".join(window))
     return "\n".join(snippets[:2])[:700]
+
+
+def summarize_section(section_text):
+    lines = [line.strip(" -•\t") for line in (section_text or "").splitlines() if line.strip()]
+    if not lines:
+        return ""
+    return "\n".join(lines[:4])[:700]
+
+
+def serialize_sections(sections):
+    return {
+        section["name"]: summarize_section(section["text"])
+        for section in sections
+        if section["text"]
+    }
 
 
 def encode_texts(texts):

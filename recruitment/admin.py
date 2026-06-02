@@ -59,6 +59,10 @@ class CVDocumentAdmin(admin.ModelAdmin):
         "extracted_email",
         "extracted_phone",
         "extracted_skills",
+        "experience_summary",
+        "education_summary",
+        "project_summary",
+        "certification_summary",
     )
 
 

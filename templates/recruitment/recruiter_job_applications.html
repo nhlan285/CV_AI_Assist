@@ -100,6 +100,13 @@
           {% if application.ai_summary %}
             <p class="ai-summary mb-2">{{ application.ai_summary }}</p>
           {% endif %}
+          {% if application.ats_breakdown.skill_evidence %}
+            <div class="parsed-cv mb-2">
+              {% for evidence in application.ats_breakdown.skill_evidence|slice:":3" %}
+                <span>{{ evidence.skill }} · {{ evidence.section }}</span>
+              {% endfor %}
+            </div>
+          {% endif %}
           <div class="parsed-cv">
             {% if application.cv.extracted_email %}<span>{{ application.cv.extracted_email }}</span>{% endif %}
             {% if application.cv.extracted_phone %}<span>{{ application.cv.extracted_phone }}</span>{% endif %}
