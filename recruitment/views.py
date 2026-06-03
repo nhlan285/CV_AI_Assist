@@ -441,7 +441,7 @@ def apply_job(request, pk):
         application.save()
         notify_recruiter_new_application(application)
         send_application_success_email(application)
-        messages.success(request, "Ứng tuyển thành công. Email thông báo sẽ được gửi nếu SMTP đã cấu hình.")
+        messages.success(request, "Ứng tuyển thành công.")
         return redirect("application_history")
 
     return render(request, "recruitment/apply_job.html", {"form": form, "job": job})
