@@ -3,64 +3,93 @@
 {% block title %}Quản lý CV{% endblock %}
 
 {% block content %}
-<div class="row g-4">
-  <div class="col-lg-5">
-    <div class="section-panel p-4">
-      <h1 class="h4 mb-3">Upload CV PDF</h1>
-      <form method="post" enctype="multipart/form-data">
-        {% csrf_token %}
-        {% include "recruitment/_form_fields.html" %}
-        <button class="btn btn-primary" type="submit">Upload CV</button>
-      </form>
-    </div>
-  </div>
-  <div class="col-lg-7">
-    <div class="section-panel p-4">
-      <h2 class="h5 mb-3">CV đang sử dụng</h2>
-      <div class="table-responsive">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Tên CV</th>
-              <th>Trạng thái</th>
-              <th>Thông tin parse</th>
-              <th>File</th>
-              <th>Ngày upload</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for cv in cv_documents %}
-              <tr>
-                <td>{{ cv }}</td>
-                <td><span class="badge badge-soft">{{ cv.get_parse_status_display }}</span></td>
-                <td>
-                  <div class="small">
-                    {% if cv.extracted_email %}<div>{{ cv.extracted_email }}</div>{% endif %}
-                    {% if cv.extracted_phone %}<div>{{ cv.extracted_phone }}</div>{% endif %}
-                    {% if cv.extracted_skills %}<div class="text-muted-ats">{{ cv.extracted_skills|truncatechars:80 }}</div>{% endif %}
-                    {% if cv.skill_evidence %}<div class="text-muted-ats">{{ cv.skill_evidence|length }} bằng chứng skill</div>{% endif %}
-                    {% if cv.experience_summary %}<div class="text-muted-ats">Experience: {{ cv.experience_summary|truncatechars:70 }}</div>{% endif %}
-                    {% if cv.project_summary %}<div class="text-muted-ats">Project: {{ cv.project_summary|truncatechars:70 }}</div>{% endif %}
-                    {% if not cv.extracted_email and not cv.extracted_phone and not cv.extracted_skills and not cv.skill_evidence %}<span class="text-muted-ats">-</span>{% endif %}
-                  </div>
-                </td>
-                <td><a href="{{ cv.file.url }}" target="_blank">Mở PDF</a></td>
-                <td>{{ cv.uploaded_at|date:"d/m/Y H:i" }}</td>
-                <td class="text-end">
-                  <a class="btn btn-outline-danger btn-sm" href="{% url 'cv_delete' cv.pk %}">Xóa</a>
-                </td>
-              </tr>
-              {% if cv.parse_error %}
-                <tr><td colspan="6" class="text-danger small">{{ cv.parse_error }}</td></tr>
-              {% endif %}
-            {% empty %}
-              <tr><td colspan="6" class="empty-cell">Chưa có CV nào.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
+<div class="page-heading">
+  <div>
+    <h1 class="h3 mb-1">Quản lý CV</h1>
+    <p class="text-muted-ats mb-0">{{ cv_documents|length }} CV đang sử dụng</p>
   </div>
 </div>
+
+<section class="section-panel cv-upload-bar mb-4">
+  <div class="cv-upload-heading">
+    <h2 class="h5 mb-0">Upload CV PDF</h2>
+  </div>
+  <form class="cv-upload-form" method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <label class="cv-upload-field" for="{{ form.title.id_for_label }}">
+      <span>{{ form.title.label }}</span>
+      {{ form.title }}
+      {% for error in form.title.errors %}
+        <small class="text-danger">{{ error }}</small>
+      {% endfor %}
+    </label>
+    <label class="cv-upload-field" for="{{ form.file.id_for_label }}">
+      <span>{{ form.file.label }}</span>
+      {{ form.file }}
+      {% for error in form.file.errors %}
+        <small class="text-danger">{{ error }}</small>
+      {% endfor %}
+    </label>
+    <button class="btn btn-primary" type="submit">Upload CV</button>
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger cv-upload-errors">
+        {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+      </div>
+    {% endif %}
+  </form>
+</section>
+
+<section class="section-panel cv-table-panel">
+  <div class="panel-heading">
+    <h2 class="h5 mb-0">CV đã đăng</h2>
+    <span class="panel-meta">{{ cv_documents|length }} hồ sơ</span>
+  </div>
+  {% if cv_documents %}
+    <div class="table-responsive">
+      <table class="table cv-table">
+        <thead>
+          <tr>
+            <th>Tên CV</th>
+            <th>Trạng thái</th>
+            <th>Thông tin parse</th>
+            <th>File</th>
+            <th>Ngày upload</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for cv in cv_documents %}
+            <tr>
+              <td class="cv-title-cell">{{ cv }}</td>
+              <td><span class="badge badge-soft">{{ cv.get_parse_status_display }}</span></td>
+              <td>
+                <div class="cv-parse-info">
+                  {% if cv.extracted_email %}<span>{{ cv.extracted_email }}</span>{% endif %}
+                  {% if cv.extracted_phone %}<span>{{ cv.extracted_phone }}</span>{% endif %}
+                  {% if cv.extracted_skills %}<span>{{ cv.extracted_skills|truncatechars:80 }}</span>{% endif %}
+                  {% if cv.skill_evidence %}<span>{{ cv.skill_evidence|length }} bằng chứng skill</span>{% endif %}
+                  {% if cv.experience_summary %}<span>Experience: {{ cv.experience_summary|truncatechars:70 }}</span>{% endif %}
+                  {% if cv.project_summary %}<span>Project: {{ cv.project_summary|truncatechars:70 }}</span>{% endif %}
+                  {% if not cv.extracted_email and not cv.extracted_phone and not cv.extracted_skills and not cv.skill_evidence %}<span>-</span>{% endif %}
+                </div>
+              </td>
+              <td><a href="{{ cv.file.url }}" target="_blank">Mở PDF</a></td>
+              <td>{{ cv.uploaded_at|date:"d/m/Y H:i" }}</td>
+              <td class="text-end table-actions">
+                <a class="btn btn-outline-danger btn-sm" href="{% url 'cv_delete' cv.pk %}">Xóa</a>
+              </td>
+            </tr>
+            {% if cv.parse_error %}
+              <tr><td colspan="6" class="text-danger small">{{ cv.parse_error }}</td></tr>
+            {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state">
+      <div class="empty-state-title">Chưa có CV nào.</div>
+    </div>
+  {% endif %}
+</section>
 {% endblock %}

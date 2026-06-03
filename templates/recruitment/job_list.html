@@ -35,14 +35,16 @@
       </select>
     </label>
 
-    <button class="btn btn-primary" type="submit">
-      <svg class="btn-svg" viewBox="0 0 24 24" aria-hidden="true">
-        <circle cx="11" cy="11" r="7"></circle>
-        <path d="m16.5 16.5 4 4"></path>
-      </svg>
-      Tìm
-    </button>
-    <a class="btn btn-outline-secondary" href="{% url 'job_list' %}">Xóa lọc</a>
+    <div class="search-actions">
+      <button class="btn btn-primary" type="submit">
+        <svg class="btn-svg" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="11" cy="11" r="7"></circle>
+          <path d="m16.5 16.5 4 4"></path>
+        </svg>
+        Tìm
+      </button>
+      <a class="btn btn-outline-secondary" href="{% url 'job_list' %}">Xóa lọc</a>
+    </div>
   </div>
 
   <div class="filter-grid mt-3">

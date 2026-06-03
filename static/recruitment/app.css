@@ -678,9 +678,13 @@ textarea.form-control {
 
 .search-main-row {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(190px, 220px) auto auto;
+  grid-template-columns: minmax(280px, 1fr) minmax(190px, 220px) auto;
   gap: 10px;
   align-items: stretch;
+}
+
+.search-main-row-with-status {
+  grid-template-columns: minmax(260px, 1fr) minmax(180px, 210px) minmax(170px, 200px) auto;
 }
 
 .search-field,
@@ -744,6 +748,19 @@ textarea.form-control {
 .sort-field select,
 .compact-select select {
   cursor: pointer;
+}
+
+.search-actions {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.search-actions .btn {
+  min-width: 102px;
+  padding-inline: 16px;
 }
 
 .filter-grid {
@@ -820,6 +837,84 @@ textarea.form-control {
 
 .table-actions {
   white-space: nowrap;
+}
+
+.cv-upload-bar {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: end;
+  padding: 18px 20px;
+}
+
+.cv-upload-heading {
+  min-width: 0;
+}
+
+.cv-upload-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(260px, 1.1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.cv-upload-field {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.cv-upload-field > span {
+  color: #334155;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.cv-upload-field .form-control {
+  width: 100%;
+}
+
+.cv-upload-form .btn {
+  min-width: 120px;
+}
+
+.cv-upload-errors {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.cv-table-panel {
+  overflow: hidden;
+}
+
+.cv-table {
+  min-width: 920px;
+}
+
+.cv-title-cell {
+  color: var(--ats-ink);
+  font-weight: 750;
+}
+
+.cv-parse-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 620px;
+}
+
+.cv-parse-info span {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 9px;
+  border: 1px solid var(--ats-line);
+  border-radius: 7px;
+  background: var(--ats-surface-muted);
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .dashboard-metrics {
@@ -1136,11 +1231,29 @@ textarea.form-control {
   }
 
   .search-main-row {
-    grid-template-columns: minmax(220px, 1fr) minmax(180px, 210px) auto auto;
+    grid-template-columns: minmax(220px, 1fr) minmax(180px, 210px) auto;
+  }
+
+  .search-main-row-with-status {
+    grid-template-columns: minmax(240px, 1fr) minmax(170px, 200px) minmax(170px, 200px);
+  }
+
+  .search-main-row-with-status .search-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
   }
 
   .filter-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cv-upload-bar {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .cv-upload-form {
+    grid-template-columns: minmax(180px, 0.9fr) minmax(240px, 1.1fr) auto;
   }
 
   .dashboard-grid {
@@ -1185,9 +1298,30 @@ textarea.form-control {
     grid-template-columns: minmax(0, 1fr) minmax(180px, 220px);
   }
 
-  .search-main-row .btn,
-  .search-main-row .btn-outline-secondary {
-    width: 100%;
+  .search-field {
+    grid-column: 1 / -1;
+  }
+
+  .search-main-row-with-status {
+    grid-template-columns: minmax(0, 1fr) minmax(180px, 220px);
+  }
+
+  .search-main-row-with-status .compact-select {
+    grid-column: auto;
+  }
+
+  .search-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+
+  .cv-upload-form {
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 1fr);
+  }
+
+  .cv-upload-form .btn {
+    grid-column: 1 / -1;
+    justify-self: flex-start;
   }
 
   .job-results-grid {
@@ -1222,8 +1356,34 @@ textarea.form-control {
     grid-template-columns: 1fr;
   }
 
+  .search-field,
+  .search-actions,
+  .search-main-row-with-status .compact-select {
+    grid-column: auto;
+  }
+
+  .search-actions {
+    flex-direction: column;
+  }
+
+  .search-actions .btn {
+    width: 100%;
+  }
+
   .search-filter-panel {
     padding: 12px;
+  }
+
+  .cv-upload-bar {
+    padding: 16px;
+  }
+
+  .cv-upload-form {
+    grid-template-columns: 1fr;
+  }
+
+  .cv-upload-form .btn {
+    width: 100%;
   }
 
   .job-card-head,
