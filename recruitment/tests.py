@@ -23,6 +23,9 @@ from .models import (
 from .services.ats import (
     calculate_application_ats,
     canonicalize_skill,
+    extract_cv_evidence_units,
+    extract_job_requirements,
+    match_job_requirements,
     match_skills,
     match_skills_with_evidence,
     parse_cv_profile,
@@ -157,6 +160,49 @@ class AtsUtilityTests(TestCase):
         self.assertEqual(missing, ["Docker"])
         self.assertEqual({item["skill"]: item["section"] for item in evidence}, {"Django": "experience", "React": "projects"})
 
+    def test_parse_cv_profile_keeps_unknown_skill_section_terms(self):
+        parsed = parse_cv_profile(
+            """
+            Nguyen Van A
+            Skills: GraphQL, FastAPI, Rust
+            Experience
+            Built GraphQL gateways for internal tools.
+            """
+        )
+
+        self.assertIn("GraphQL", parsed["skills"])
+        self.assertIn("FastAPI", parsed["skills"])
+        self.assertIn("Rust", parsed["skills"])
+
+    def test_semantic_requirement_matching_does_not_require_skill_dictionary(self):
+        recruiter = User.objects.create_user("semantic_recruiter")
+        company = Company.objects.create(recruiter=recruiter, name="Demo Co")
+        job = JobPost.objects.create(
+            company=company,
+            title="Platform Engineer",
+            location="Remote",
+            required_skills="GraphQL, FastAPI, vector search",
+            description="Build internal platform services.",
+            requirements="Design GraphQL APIs and improve vector search retrieval quality.",
+        )
+        cv_text = """
+        Skills: GraphQL, FastAPI, Rust
+        Experience
+        Designed GraphQL APIs for analytics products.
+        Projects
+        Improved vector search retrieval quality for document ranking.
+        """
+
+        requirements = extract_job_requirements(job)
+        evidence_units = extract_cv_evidence_units(cv_text)
+        result = match_job_requirements(cv_text, job)
+
+        self.assertTrue(requirements)
+        self.assertTrue(evidence_units)
+        self.assertGreater(result["score"], 70)
+        self.assertIn("GraphQL", [item["label"] for item in result["matched_requirements"]])
+        self.assertIn("vector search", [item["label"] for item in result["matched_requirements"]])
+
     @patch("recruitment.services.ats.semantic_similarity_score", return_value=(80, "semantic ok"))
     def test_calculate_application_ats_returns_breakdown_and_summary(self, _mock_semantic):
         recruiter = User.objects.create_user("ats_recruiter")
@@ -182,6 +228,7 @@ class AtsUtilityTests(TestCase):
         self.assertEqual(result["semantic_score"], 80)
         self.assertGreater(result["skill_score"], 70)
         self.assertIn("Docker", result["missing_skills"])
+        self.assertIn("requirement_evidence", result["breakdown"])
         self.assertTrue(result["summary"])
 
     def test_application_status_form_validates_manual_score_range(self):

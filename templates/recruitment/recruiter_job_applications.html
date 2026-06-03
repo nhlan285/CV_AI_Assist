@@ -82,11 +82,11 @@
 
         <div class="candidate-skills">
           <div>
-            <div class="skill-label">Kỹ năng khớp</div>
+            <div class="skill-label">Yêu cầu khớp</div>
             <p class="mb-0">{{ application.matched_skills|default:"-" }}</p>
           </div>
           <div>
-            <div class="skill-label">Kỹ năng thiếu</div>
+            <div class="skill-label">Cần xem thêm</div>
             <p class="mb-0">{{ application.missing_skills|default:"-" }}</p>
           </div>
         </div>
@@ -94,13 +94,19 @@
         <div class="candidate-ai">
           <div class="score-parts">
             <span>Semantic {{ application.ats_semantic_score|floatformat:0 }}</span>
-            <span>Skill {{ application.ats_skill_score|floatformat:0 }}</span>
+            <span>Requirement {{ application.ats_skill_score|floatformat:0 }}</span>
             {% if application.manual_score %}<span>Manual {{ application.manual_score }}/5</span>{% endif %}
           </div>
           {% if application.ai_summary %}
             <p class="ai-summary mb-2">{{ application.ai_summary }}</p>
           {% endif %}
-          {% if application.ats_breakdown.skill_evidence %}
+          {% if application.ats_breakdown.requirement_evidence %}
+            <div class="parsed-cv mb-2">
+              {% for evidence in application.ats_breakdown.requirement_evidence|slice:":3" %}
+                <span>{{ evidence.label }} · {{ evidence.section }} · {{ evidence.score|floatformat:0 }}</span>
+              {% endfor %}
+            </div>
+          {% elif application.ats_breakdown.skill_evidence %}
             <div class="parsed-cv mb-2">
               {% for evidence in application.ats_breakdown.skill_evidence|slice:":3" %}
                 <span>{{ evidence.skill }} · {{ evidence.section }}</span>

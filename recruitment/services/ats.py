@@ -2,6 +2,7 @@ import math
 import re
 import unicodedata
 from collections import Counter
+from difflib import SequenceMatcher
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -63,6 +64,53 @@ SECTION_WEIGHTS = {
     "certifications": 0.7,
     "education": 0.6,
     "other": 0.45,
+}
+
+REQUIREMENT_SOURCE_WEIGHTS = {
+    "required_skills": 1.0,
+    "requirements": 0.9,
+    "description": 0.6,
+}
+
+REQUIREMENT_MATCH_THRESHOLD = 52
+
+ATS_STOP_WORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "build",
+    "can",
+    "co",
+    "collaborate",
+    "develop",
+    "do",
+    "duoc",
+    "for",
+    "from",
+    "have",
+    "in",
+    "is",
+    "job",
+    "lam",
+    "mot",
+    "must",
+    "of",
+    "or",
+    "required",
+    "should",
+    "the",
+    "to",
+    "ung",
+    "using",
+    "va",
+    "voi",
+    "with",
+    "work",
+    "yeu",
 }
 
 DEFAULT_SKILL_ALIASES = {
@@ -260,36 +308,47 @@ def populate_cv_parsed_fields(cv_document, cv_text, save=True):
 def calculate_application_ats(cv_text, job):
     job_text = build_job_text(job)
     semantic_score, note = semantic_similarity_score(cv_text, job_text)
-    skills = split_skills(job.required_skills)
-    matched, missing, matched_evidence = match_skills_with_evidence(cv_text, skills)
-    skill_score = contextual_skill_score(skills, matched, matched_evidence)
+    requirement_result = match_job_requirements(cv_text, job)
+    matched = [item["label"] for item in requirement_result["matched_requirements"]]
+    missing = [item["label"] for item in requirement_result["missing_requirements"]]
+    skill_score = requirement_result["score"]
+    legacy_skills = split_skills(job.required_skills)
+    legacy_matched, legacy_missing, legacy_evidence = match_skills_with_evidence(cv_text, legacy_skills)
     experience_score = detect_experience_signal(cv_text)
     education_score = detect_education_signal(cv_text)
     domain_score = detect_domain_signal(cv_text, job_text)
-    section_counts = Counter(item["section"] for item in matched_evidence)
+    section_counts = Counter(item["section"] for item in requirement_result["evidence"])
 
     final_score = (
-        semantic_score * 0.50
-        + skill_score * 0.30
+        skill_score * 0.45
+        + semantic_score * 0.30
+        + requirement_result["evidence_depth_score"] * 0.10
         + experience_score * 0.10
         + education_score * 0.05
-        + domain_score * 0.05
     )
     final_score = round(max(0, min(100, final_score)), 2)
     breakdown = {
         "semantic_score": round(max(0, min(100, semantic_score)), 2),
         "skill_score": round(max(0, min(100, skill_score)), 2),
+        "requirement_score": round(max(0, min(100, skill_score)), 2),
+        "evidence_depth_score": round(requirement_result["evidence_depth_score"], 2),
         "experience_score": round(experience_score, 2),
         "education_score": round(education_score, 2),
         "domain_score": round(domain_score, 2),
-        "skill_evidence": matched_evidence[:20],
+        "requirements": requirement_result["requirements"],
+        "requirement_matches": requirement_result["matched_requirements"][:20],
+        "requirement_missing": requirement_result["missing_requirements"][:20],
+        "requirement_evidence": requirement_result["evidence"][:20],
+        "skill_evidence": legacy_evidence[:20],
+        "legacy_matched_skills": legacy_matched,
+        "legacy_missing_skills": legacy_missing,
         "section_skill_counts": dict(section_counts),
         "weights": {
-            "semantic": 0.50,
-            "skill": 0.30,
+            "requirements": 0.45,
+            "semantic": 0.30,
+            "evidence_depth": 0.10,
             "experience": 0.10,
             "education": 0.05,
-            "domain": 0.05,
         },
     }
     summary = generate_ai_summary(final_score, breakdown, matched, missing)
@@ -318,6 +377,327 @@ def build_job_text(job):
             job.benefits,
         ]
     )
+
+
+def extract_job_requirements(job):
+    requirements = []
+
+    for phrase in split_requirement_phrases(job.required_skills):
+        add_requirement(requirements, phrase, "required_skills", "skill")
+
+    for statement in split_text_statements(job.requirements):
+        add_requirement(requirements, statement, "requirements", "requirement")
+
+    if len(requirements) < 8:
+        for statement in split_text_statements(job.description):
+            add_requirement(requirements, statement, "description", "responsibility")
+            if len(requirements) >= 12:
+                break
+
+    return requirements[:16]
+
+
+def add_requirement(requirements, text, source, kind):
+    cleaned = clean_requirement_text(text)
+    if not cleaned:
+        return
+    key = compact_skill_phrase(cleaned)
+    if not key or any(item["key"] == key for item in requirements):
+        return
+    requirements.append(
+        {
+            "key": key,
+            "label": requirement_label(cleaned),
+            "text": cleaned,
+            "source": source,
+            "kind": kind,
+            "weight": REQUIREMENT_SOURCE_WEIGHTS.get(source, 0.6),
+        }
+    )
+
+
+def split_requirement_phrases(raw_text):
+    parts = re.split(r"[,;\n|]+|\s+/\s+|â€¢|•", raw_text or "")
+    return [part for part in (clean_requirement_text(part) for part in parts) if part]
+
+
+def split_text_statements(raw_text):
+    statements = []
+    for raw_line in (raw_text or "").splitlines():
+        line = clean_requirement_text(raw_line)
+        if not line:
+            continue
+        chunks = re.split(r"(?<=[.!?])\s+|[;•]+|â€¢+", line)
+        for chunk in chunks:
+            cleaned = clean_requirement_text(chunk)
+            if is_useful_statement(cleaned):
+                statements.append(cleaned)
+    return dedupe_text_items(statements)
+
+
+def clean_requirement_text(text):
+    cleaned = re.sub(r"^\s*(?:[-*+•]|\d+[\).:-])\s*", "", text or "")
+    cleaned = re.sub(r"\s+", " ", cleaned.strip(" \t\r\n-–—:;,."))
+    return cleaned[:280]
+
+
+def is_useful_statement(text):
+    if not text:
+        return False
+    tokens = semantic_tokens(text)
+    if len(tokens) >= 2:
+        return True
+    return len(text.strip()) >= 2 and any(char.isupper() for char in text)
+
+
+def requirement_label(text):
+    cleaned = clean_requirement_text(text)
+    if len(cleaned) <= 90:
+        return cleaned
+    return cleaned[:87].rstrip() + "..."
+
+
+def extract_cv_evidence_units(cv_text):
+    sections = split_cv_sections(cv_text)
+    evidence_units = []
+    for section in sections:
+        section_name = section["name"]
+        section_text = section["text"]
+        if section_name == "skills":
+            for term in split_requirement_phrases(section_text):
+                add_evidence_unit(evidence_units, term, section_name)
+        for statement in split_text_statements(section_text):
+            add_evidence_unit(evidence_units, statement, section_name)
+
+    if not evidence_units:
+        for statement in split_text_statements(cv_text):
+            add_evidence_unit(evidence_units, statement, "other")
+
+    return evidence_units[:80]
+
+
+def add_evidence_unit(evidence_units, text, section):
+    cleaned = clean_requirement_text(text)
+    if not cleaned:
+        return
+    key = (section, normalize_skill_phrase(cleaned)[:160])
+    if any(item["key"] == key for item in evidence_units):
+        return
+    evidence_units.append(
+        {
+            "key": key,
+            "text": cleaned,
+            "section": section,
+            "weight": SECTION_WEIGHTS.get(section, SECTION_WEIGHTS["other"]),
+        }
+    )
+
+
+def match_job_requirements(cv_text, job):
+    requirements = extract_job_requirements(job)
+    evidence_units = extract_cv_evidence_units(cv_text)
+    if not requirements:
+        return {
+            "score": 0,
+            "evidence_depth_score": 0,
+            "requirements": [],
+            "matched_requirements": [],
+            "missing_requirements": [],
+            "evidence": [],
+        }
+
+    matched_requirements = []
+    missing_requirements = []
+    evidence = []
+    total_weight = 0
+    weighted_score = 0
+
+    for requirement in requirements:
+        best = best_requirement_evidence(requirement, evidence_units)
+        total_weight += requirement["weight"]
+        weighted_score += requirement["weight"] * best["score"]
+
+        result = {
+            "label": requirement["label"],
+            "text": requirement["text"],
+            "source": requirement["source"],
+            "kind": requirement["kind"],
+            "score": round(best["score"], 2),
+        }
+        if best["score"] >= REQUIREMENT_MATCH_THRESHOLD:
+            result.update(
+                {
+                    "section": best["section"],
+                    "evidence": best["evidence"],
+                }
+            )
+            matched_requirements.append(result)
+            evidence.append(result)
+        else:
+            missing_requirements.append(result)
+
+    return {
+        "score": weighted_score / total_weight if total_weight else 0,
+        "evidence_depth_score": evidence_depth_score(evidence),
+        "requirements": [
+            {
+                "label": item["label"],
+                "text": item["text"],
+                "source": item["source"],
+                "kind": item["kind"],
+                "weight": item["weight"],
+            }
+            for item in requirements
+        ],
+        "matched_requirements": matched_requirements,
+        "missing_requirements": missing_requirements,
+        "evidence": dedupe_requirement_evidence(evidence),
+    }
+
+
+def best_requirement_evidence(requirement, evidence_units):
+    best = {"score": 0, "section": "other", "evidence": ""}
+    for unit in evidence_units:
+        raw_score = semantic_text_match_score(requirement["text"], unit["text"])
+        section_bonus = 0.92 + (unit["weight"] * 0.12)
+        score = min(100, raw_score * section_bonus)
+        if score > best["score"]:
+            best = {
+                "score": score,
+                "section": unit["section"],
+                "evidence": unit["text"],
+            }
+    return best
+
+
+def semantic_text_match_score(text_a, text_b):
+    normalized_a = normalize_skill_phrase(text_a)
+    normalized_b = normalize_skill_phrase(text_b)
+    if not normalized_a or not normalized_b:
+        return 0
+    if phrase_in_text(normalized_a, normalized_b) or phrase_in_text(normalized_b, normalized_a):
+        return 96
+
+    tokens_a = semantic_tokens(text_a)
+    tokens_b = semantic_tokens(text_b)
+    if not tokens_a or not tokens_b:
+        return SequenceMatcher(None, normalized_a, normalized_b).ratio() * 35
+
+    unique_a = set(tokens_a)
+    unique_b = set(tokens_b)
+    if len(unique_a) <= 4 and unique_a.issubset(unique_b):
+        return 92
+    if len(unique_b) <= 4 and unique_b.issubset(unique_a):
+        return 88
+
+    token_score = token_cosine_similarity(tokens_a, tokens_b)
+    containment_score = token_containment_score(tokens_a, tokens_b)
+    ngram_score = char_ngram_jaccard(normalized_a, normalized_b)
+    sequence_score = SequenceMatcher(None, normalized_a, normalized_b).ratio()
+
+    return (
+        token_score * 40
+        + containment_score * 35
+        + ngram_score * 15
+        + sequence_score * 10
+    )
+
+
+def semantic_tokens(text):
+    tokens = []
+    for token in re.findall(r"[a-z0-9+#.]+", normalize_skill_phrase(text)):
+        token = token.strip(".")
+        token = normalize_semantic_token(token)
+        if len(token) <= 1 or token in ATS_STOP_WORDS:
+            continue
+        tokens.append(token)
+    return tokens
+
+
+def normalize_semantic_token(token):
+    if token == "restful":
+        return "rest"
+    if token.endswith("ies") and len(token) > 4:
+        return token[:-3] + "y"
+    if token.endswith("s") and len(token) > 3 and not token.endswith("ss"):
+        return token[:-1]
+    return token
+
+
+def token_cosine_similarity(tokens_a, tokens_b):
+    counts_a = Counter(tokens_a)
+    counts_b = Counter(tokens_b)
+    shared = set(counts_a) & set(counts_b)
+    numerator = sum(counts_a[token] * counts_b[token] for token in shared)
+    denominator = math.sqrt(sum(v * v for v in counts_a.values())) * math.sqrt(
+        sum(v * v for v in counts_b.values())
+    )
+    return numerator / denominator if denominator else 0
+
+
+def token_containment_score(tokens_a, tokens_b):
+    unique_a = set(tokens_a)
+    unique_b = set(tokens_b)
+    if not unique_a or not unique_b:
+        return 0
+    return len(unique_a & unique_b) / max(1, min(len(unique_a), len(unique_b)))
+
+
+def char_ngram_jaccard(text_a, text_b, size=3):
+    grams_a = char_ngrams(text_a, size)
+    grams_b = char_ngrams(text_b, size)
+    if not grams_a or not grams_b:
+        return 0
+    return len(grams_a & grams_b) / len(grams_a | grams_b)
+
+
+def char_ngrams(text, size):
+    compact = compact_skill_phrase(text)
+    if len(compact) <= size:
+        return {compact} if compact else set()
+    return {compact[index : index + size] for index in range(len(compact) - size + 1)}
+
+
+def evidence_depth_score(evidence):
+    if not evidence:
+        return 0
+    sections = {item.get("section", "other") for item in evidence}
+    section_score = min(100, len(sections) * 28)
+    strong_evidence = sum(
+        1
+        for item in evidence
+        if item.get("section") in {"experience", "projects", "certifications"}
+    )
+    strong_score = min(100, strong_evidence * 18)
+    return min(100, section_score * 0.45 + strong_score * 0.55)
+
+
+def dedupe_requirement_evidence(items):
+    result = []
+    seen = set()
+    for item in items:
+        key = (
+            compact_skill_phrase(item.get("label", "")),
+            item.get("section", "other"),
+            normalize_skill_phrase(item.get("evidence", ""))[:120],
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+    return result
+
+
+def dedupe_text_items(items):
+    result = []
+    seen = set()
+    for item in items:
+        key = compact_skill_phrase(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+    return result
 
 
 def split_skills(raw_text):
@@ -522,9 +902,8 @@ def split_cv_sections(text):
 
     for line in lines:
         raw_line = line.rstrip()
-        normalized = normalize_skill_phrase(raw_line.strip(":-"))
         next_cursor = cursor + len(line) + 1
-        detected_section = section_aliases.get(normalized)
+        detected_section, inline_text = detect_section_heading(raw_line, section_aliases)
         if detected_section:
             if current_lines:
                 sections.append(
@@ -536,8 +915,8 @@ def split_cv_sections(text):
                     }
                 )
             current_section = detected_section
-            current_start = next_cursor
-            current_lines = []
+            current_start = cursor + raw_line.find(inline_text) if inline_text else next_cursor
+            current_lines = [inline_text] if inline_text else []
         else:
             current_lines.append(raw_line)
         cursor = next_cursor
@@ -552,6 +931,22 @@ def split_cv_sections(text):
             }
         )
     return [section for section in sections if section["text"] or section["name"] != "other"]
+
+
+def detect_section_heading(raw_line, section_aliases):
+    normalized = normalize_skill_phrase(raw_line.strip(":-"))
+    detected_section = section_aliases.get(normalized)
+    if detected_section:
+        return detected_section, ""
+
+    match = re.match(r"^\s*([^:]{2,40})\s*:\s*(.+)$", raw_line or "")
+    if not match:
+        return None, ""
+    heading = normalize_skill_phrase(match.group(1))
+    detected_section = section_aliases.get(heading)
+    if detected_section:
+        return detected_section, match.group(2).strip()
+    return None, ""
 
 
 def get_section_aliases():
@@ -720,13 +1115,13 @@ def generate_ai_summary(final_score, breakdown, matched, missing):
     else:
         fit_label = "Ứng viên đang thiếu nhiều tín hiệu phù hợp so với JD."
 
-    skill_line = ""
+    requirement_line = ""
     if matched:
-        skill_line = "Kỹ năng khớp nổi bật: " + ", ".join(matched[:5]) + "."
+        requirement_line = "Yêu cầu đã có bằng chứng: " + ", ".join(matched[:5]) + "."
     if missing:
-        missing_line = "Thiếu hoặc chưa thể hiện rõ: " + ", ".join(missing[:5]) + "."
+        missing_line = "Yêu cầu còn thiếu hoặc chưa rõ: " + ", ".join(missing[:5]) + "."
     else:
-        missing_line = "Không phát hiện kỹ năng bắt buộc nào bị thiếu."
+        missing_line = "Không phát hiện yêu cầu chính nào bị thiếu."
 
     evidence_sections = breakdown.get("section_skill_counts", {})
     evidence_line = ""
@@ -735,14 +1130,16 @@ def generate_ai_summary(final_score, breakdown, matched, missing):
             section for section in ["experience", "projects"] if evidence_sections.get(section)
         ]
         if strong_sections:
-            evidence_line = "Có bằng chứng skill trong " + ", ".join(strong_sections) + "."
+            evidence_line = "Bằng chứng mạnh nằm trong " + ", ".join(strong_sections) + "."
 
     signal_line = (
         f"Semantic {breakdown['semantic_score']:.1f}, "
-        f"skill {breakdown['skill_score']:.1f}, "
+        f"requirement {breakdown['skill_score']:.1f}, "
         f"kinh nghiệm {breakdown['experience_score']:.1f}."
     )
-    return " ".join(part for part in [fit_label, skill_line, missing_line, evidence_line, signal_line] if part)
+    return " ".join(
+        part for part in [fit_label, requirement_line, missing_line, evidence_line, signal_line] if part
+    )
 
 
 def parse_cv_profile(cv_text):
@@ -751,11 +1148,15 @@ def parse_cv_profile(cv_text):
     sections = split_cv_sections(text)
     section_map = {section["name"]: section["text"] for section in sections if section["text"]}
     skill_evidence = detect_skill_evidence(text)
+    section_skill_terms = extract_skill_section_terms(sections)
     return {
         "email": extract_email(text),
         "phone": extract_phone(text),
         "links": links,
-        "skills": dedupe_preserve_order(item["skill"] for item in skill_evidence) or detect_known_skills(text),
+        "skills": dedupe_preserve_order(
+            [*section_skill_terms, *(item["skill"] for item in skill_evidence)]
+        )
+        or detect_known_skills(text),
         "education_summary": summarize_section(section_map.get("education"))
         or summarize_section_signal(text, ["education", "hoc van", "dai hoc", "university", "bachelor"]),
         "experience_summary": summarize_section(section_map.get("experience"))
@@ -767,6 +1168,24 @@ def parse_cv_profile(cv_text):
         "sections": serialize_sections(sections),
         "skill_evidence": skill_evidence[:40],
     }
+
+
+def extract_skill_section_terms(sections):
+    terms = []
+    for section in sections:
+        if section["name"] != "skills":
+            continue
+        for phrase in split_requirement_phrases(section["text"]):
+            if is_reasonable_skill_term(phrase):
+                terms.append(canonicalize_skill(phrase))
+    return dedupe_preserve_order(terms)
+
+
+def is_reasonable_skill_term(text):
+    tokens = semantic_tokens(text)
+    if not tokens:
+        return False
+    return len(tokens) <= 6 and len(text) <= 80
 
 
 def extract_email(text):

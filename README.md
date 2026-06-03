@@ -58,7 +58,8 @@ Can dung Gmail App Password, khong dung mat khau Gmail chinh.
 
 - MVP chi nhan CV PDF co text that, chua ho tro OCR file scan.
 - File CV luu trong `media/`, database chi luu duong dan va metadata.
-- Danh muc skill/alias co the quan tri trong Django Admin. Seed danh muc mac dinh bang `python manage.py seed_skills`.
+- ATS score chinh duoc tinh theo semantic requirement/evidence matching: tach JD thanh cac yeu cau, tach CV thanh bang chung, sau do cham do phu hop tung yeu cau.
+- Danh muc skill/alias co the quan tri trong Django Admin va chi con dong vai tro phu de chuan hoa alias pho bien. Seed danh muc mac dinh bang `python manage.py seed_skills`.
 - spaCy dung `spacy.blank("xx")` va `PhraseMatcher`, khong can tai model ngon ngu lon trong MVP.
 - Semantic matching dung multilingual MiniLM model `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` qua HuggingFace `transformers`.
 - Neu model semantic chua san sang, service se fallback sang keyword similarity de khong lam hong flow ung tuyen.
@@ -72,7 +73,7 @@ python manage.py reprocess_ats
 
 - `ats_site/`: cau hinh Django, ASGI/WSGI, static/media.
 - `recruitment/models.py`: profile, company, job, CV, application, notification, skill dictionary.
-- `recruitment/services/ats.py`: doc CV, parse CV, match skill, tinh ATS score.
+- `recruitment/services/ats.py`: doc CV, parse CV, requirement/evidence matching, tinh ATS score.
 - `recruitment/services/notifications.py`: tao va push notification realtime.
 - `recruitment/templates/`: giao dien candidate/recruiter/admin-facing pages.
 - `static/recruitment/app.css`: style tong the dashboard, list, filter, notification.
